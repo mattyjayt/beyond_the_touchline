@@ -1,0 +1,29 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Inside the Game API - synthetic football event replay, ratings and agent tools"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "claude-agent-sdk>=0.2.174",
+    "fastapi>=0.162.0",
+    "mcp>=2.3.0",
+    "pydantic-settings>=2.16.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100

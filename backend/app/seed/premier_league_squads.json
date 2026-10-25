@@ -1,0 +1,1387 @@
+{
+  "season": "2026-27",
+  "retrieved_at": "2026-10-25",
+  "disclaimer": "Club and player names are real reference data. All matches, events, ratings and recommendations generated from this file are synthetic simulations, not real match facts.",
+  "sources": [
+    "https://en.wikipedia.org/wiki/2026–27_Arsenal_F.C._season",
+    "https://en.wikipedia.org/wiki/2026–27_Manchester_City_F.C._season",
+    "https://en.wikipedia.org/wiki/2026–27_Liverpool_F.C._season",
+    "https://en.wikipedia.org/wiki/Liverpool_F.C.",
+    "https://en.wikipedia.org/wiki/2026–27_Chelsea_F.C._season",
+    "https://en.wikipedia.org/wiki/2026–27_Manchester_United_F.C._season"
+  ],
+  "teams": [
+    {
+      "team_id": "T-ARS",
+      "code": "ARS",
+      "name": "Arsenal",
+      "short_name": "Arsenal",
+      "home_venue": "Emirates Stadium",
+      "primary_color": "#EF0107",
+      "secondary_color": "#FFFFFF",
+      "manager": "Mikel Arteta",
+      "default_formation": "4-3-3",
+      "players": [
+        {
+          "player_id": "P-ARS-01",
+          "shirt_number": 1,
+          "display_name": "David Raya",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "sweeper_keeper"
+        },
+        {
+          "player_id": "P-ARS-02",
+          "shirt_number": 2,
+          "display_name": "William Saliba",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-ARS-03",
+          "shirt_number": 3,
+          "display_name": "Cristhian Mosquera",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-ARS-04",
+          "shirt_number": 4,
+          "display_name": "Ben White",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "CB"
+          ],
+          "foot": "right",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-ARS-05",
+          "shirt_number": 5,
+          "display_name": "Piero Hincapié",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "left",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-ARS-06",
+          "shirt_number": 6,
+          "display_name": "Gabriel Magalhães",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-ARS-07",
+          "shirt_number": 7,
+          "display_name": "Bukayo Saka",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "RM"
+          ],
+          "foot": "left",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-ARS-08",
+          "shirt_number": 8,
+          "display_name": "Martin Ødegaard",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "left",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-ARS-10",
+          "shirt_number": 10,
+          "display_name": "Eberechi Eze",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-ARS-12",
+          "shirt_number": 12,
+          "display_name": "Jurriën Timber",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "LB",
+            "CB"
+          ],
+          "foot": "right",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-ARS-13",
+          "shirt_number": 13,
+          "display_name": "Kepa Arrizabalaga",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-ARS-14",
+          "shirt_number": 14,
+          "display_name": "Viktor Gyökeres",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "complete_forward"
+        },
+        {
+          "player_id": "P-ARS-15",
+          "shirt_number": 15,
+          "display_name": "Ezri Konsa",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-ARS-17",
+          "shirt_number": 17,
+          "display_name": "Christos Tzolis",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-ARS-20",
+          "shirt_number": 20,
+          "display_name": "Noni Madueke",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "left",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-ARS-23",
+          "shirt_number": 23,
+          "display_name": "Mikel Merino",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CAM",
+            "ST"
+          ],
+          "foot": "left",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-ARS-29",
+          "shirt_number": 29,
+          "display_name": "Kai Havertz",
+          "primary_position": "ST",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "left",
+          "archetype": "complete_forward"
+        },
+        {
+          "player_id": "P-ARS-30",
+          "shirt_number": 30,
+          "display_name": "Illan Meslier",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-ARS-33",
+          "shirt_number": 33,
+          "display_name": "Riccardo Calafiori",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "CB"
+          ],
+          "foot": "left",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-ARS-36",
+          "shirt_number": 36,
+          "display_name": "Martín Zubimendi",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "deep_playmaker"
+        },
+        {
+          "player_id": "P-ARS-39",
+          "shirt_number": 39,
+          "display_name": "Bruno Guimarães",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "deep_playmaker"
+        },
+        {
+          "player_id": "P-ARS-41",
+          "shirt_number": 41,
+          "display_name": "Declan Rice",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-ARS-49",
+          "shirt_number": 49,
+          "display_name": "Myles Lewis-Skelly",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "left",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-ARS-56",
+          "shirt_number": 56,
+          "display_name": "Max Dowman",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "left",
+          "archetype": "ball_carrier"
+        },
+        {
+          "player_id": "P-ARS-89",
+          "shirt_number": 89,
+          "display_name": "Marli Salmon",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        }
+      ]
+    },
+    {
+      "team_id": "T-MCI",
+      "code": "MCI",
+      "name": "Manchester City",
+      "short_name": "Man City",
+      "home_venue": "Etihad Stadium",
+      "primary_color": "#6CABDD",
+      "secondary_color": "#1C2C5B",
+      "manager": "Enzo Maresca",
+      "default_formation": "4-2-3-1",
+      "players": [
+        {
+          "player_id": "P-MCI-01",
+          "shirt_number": 1,
+          "display_name": "Gianluigi Donnarumma",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-MCI-03",
+          "shirt_number": 3,
+          "display_name": "Rúben Dias",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-MCI-05",
+          "shirt_number": 5,
+          "display_name": "Elliot Anderson",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-MCI-06",
+          "shirt_number": 6,
+          "display_name": "Marc Guéhi",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MCI-07",
+          "shirt_number": 7,
+          "display_name": "Iliman Ndiaye",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "ball_carrier"
+        },
+        {
+          "player_id": "P-MCI-08",
+          "shirt_number": 8,
+          "display_name": "Mateo Kovačić",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-MCI-09",
+          "shirt_number": 9,
+          "display_name": "Erling Haaland",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "poacher"
+        },
+        {
+          "player_id": "P-MCI-10",
+          "shirt_number": 10,
+          "display_name": "Rayan Cherki",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-MCI-11",
+          "shirt_number": 11,
+          "display_name": "Jérémy Doku",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-MCI-13",
+          "shirt_number": 13,
+          "display_name": "Marcus Bettinelli",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-MCI-17",
+          "shirt_number": 17,
+          "display_name": "Enzo Fernández",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CAM",
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-MCI-21",
+          "shirt_number": 21,
+          "display_name": "Rayan Aït-Nouri",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "LWB"
+          ],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MCI-22",
+          "shirt_number": 22,
+          "display_name": "Vitor Reis",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MCI-24",
+          "shirt_number": 24,
+          "display_name": "Joško Gvardiol",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "left",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MCI-27",
+          "shirt_number": 27,
+          "display_name": "Matheus Nunes",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MCI-28",
+          "shirt_number": 28,
+          "display_name": "Gerónimo Rulli",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "sweeper_keeper"
+        },
+        {
+          "player_id": "P-MCI-32",
+          "shirt_number": 32,
+          "display_name": "Ayyoub Bouaddi",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "anchor"
+        },
+        {
+          "player_id": "P-MCI-33",
+          "shirt_number": 33,
+          "display_name": "Nico O'Reilly",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "CM",
+            "CAM"
+          ],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MCI-37",
+          "shirt_number": 37,
+          "display_name": "Allan",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-MCI-42",
+          "shirt_number": 42,
+          "display_name": "Antoine Semenyo",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-MCI-45",
+          "shirt_number": 45,
+          "display_name": "Abdukodir Khusanov",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-MCI-47",
+          "shirt_number": 47,
+          "display_name": "Phil Foden",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "LW",
+            "RW"
+          ],
+          "foot": "left",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-MCI-56",
+          "shirt_number": 56,
+          "display_name": "Ryan McAidoo",
+          "primary_position": "RW",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_carrier"
+        },
+        {
+          "player_id": "P-MCI-75",
+          "shirt_number": 75,
+          "display_name": "Floyd Samba",
+          "primary_position": "ST",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "right",
+          "archetype": "poacher"
+        },
+        {
+          "player_id": "P-MCI-82",
+          "shirt_number": 82,
+          "display_name": "Rico Lewis",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "inverted_fullback"
+        }
+      ]
+    },
+    {
+      "team_id": "T-LIV",
+      "code": "LIV",
+      "name": "Liverpool",
+      "short_name": "Liverpool",
+      "home_venue": "Anfield",
+      "primary_color": "#C8102E",
+      "secondary_color": "#F6EB61",
+      "manager": "Andoni Iraola",
+      "default_formation": "4-2-3-1",
+      "players": [
+        {
+          "player_id": "P-LIV-01",
+          "shirt_number": 1,
+          "display_name": "Alisson Becker",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "sweeper_keeper"
+        },
+        {
+          "player_id": "P-LIV-02",
+          "shirt_number": 2,
+          "display_name": "Joe Gomez",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-LIV-03",
+          "shirt_number": 3,
+          "display_name": "Wataru Endo",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CB"
+          ],
+          "foot": "right",
+          "archetype": "anchor"
+        },
+        {
+          "player_id": "P-LIV-04",
+          "shirt_number": 4,
+          "display_name": "Virgil van Dijk",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-LIV-05",
+          "shirt_number": 5,
+          "display_name": "Jérémy Jacquet",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-LIV-06",
+          "shirt_number": 6,
+          "display_name": "Milos Kerkez",
+          "primary_position": "LB",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-LIV-07",
+          "shirt_number": 7,
+          "display_name": "Florian Wirtz",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-LIV-08",
+          "shirt_number": 8,
+          "display_name": "Dominik Szoboszlai",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CAM",
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-LIV-09",
+          "shirt_number": 9,
+          "display_name": "Alexander Isak",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "complete_forward"
+        },
+        {
+          "player_id": "P-LIV-10",
+          "shirt_number": 10,
+          "display_name": "Alexis Mac Allister",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-LIV-12",
+          "shirt_number": 12,
+          "display_name": "Conor Bradley",
+          "primary_position": "RB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-LIV-14",
+          "shirt_number": 14,
+          "display_name": "Federico Chiesa",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-LIV-15",
+          "shirt_number": 15,
+          "display_name": "Giovanni Leoni",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-LIV-18",
+          "shirt_number": 18,
+          "display_name": "Cody Gakpo",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "ST"
+          ],
+          "foot": "right",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-LIV-21",
+          "shirt_number": 21,
+          "display_name": "Kostas Tsimikas",
+          "primary_position": "LB",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-LIV-22",
+          "shirt_number": 22,
+          "display_name": "Hugo Ekitike",
+          "primary_position": "ST",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "pressing_forward"
+        },
+        {
+          "player_id": "P-LIV-23",
+          "shirt_number": 23,
+          "display_name": "Víctor Muñoz",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-LIV-25",
+          "shirt_number": 25,
+          "display_name": "Giorgi Mamardashvili",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-LIV-28",
+          "shirt_number": 28,
+          "display_name": "Freddie Woodman",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-LIV-29",
+          "shirt_number": 29,
+          "display_name": "Bradley Barcola",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-LIV-30",
+          "shirt_number": 30,
+          "display_name": "Jeremie Frimpong",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "RWB",
+            "RW"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-LIV-33",
+          "shirt_number": 33,
+          "display_name": "Ronald Araújo",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-LIV-38",
+          "shirt_number": 38,
+          "display_name": "Ryan Gravenberch",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "deep_playmaker"
+        },
+        {
+          "player_id": "P-LIV-42",
+          "shirt_number": 42,
+          "display_name": "Trey Nyoni",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-LIV-73",
+          "shirt_number": 73,
+          "display_name": "Rio Ngumoha",
+          "primary_position": "LW",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "direct_winger"
+        }
+      ]
+    },
+    {
+      "team_id": "T-CHE",
+      "code": "CHE",
+      "name": "Chelsea",
+      "short_name": "Chelsea",
+      "home_venue": "Stamford Bridge",
+      "primary_color": "#034694",
+      "secondary_color": "#DBA111",
+      "manager": "Xabi Alonso",
+      "default_formation": "4-2-3-1",
+      "players": [
+        {
+          "player_id": "P-CHE-01",
+          "shirt_number": 1,
+          "display_name": "Emiliano Martínez",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-CHE-02",
+          "shirt_number": 2,
+          "display_name": "Marco Palestra",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "RWB"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-CHE-03",
+          "shirt_number": 3,
+          "display_name": "Wesley Fofana",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-CHE-04",
+          "shirt_number": 4,
+          "display_name": "Valentín Barco",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "left",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-CHE-05",
+          "shirt_number": 5,
+          "display_name": "Maxence Lacroix",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-CHE-06",
+          "shirt_number": 6,
+          "display_name": "Levi Colwill",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "left",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-CHE-07",
+          "shirt_number": 7,
+          "display_name": "Pedro Neto",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "left",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-CHE-09",
+          "shirt_number": 9,
+          "display_name": "João Pedro",
+          "primary_position": "ST",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "right",
+          "archetype": "complete_forward"
+        },
+        {
+          "player_id": "P-CHE-10",
+          "shirt_number": 10,
+          "display_name": "Cole Palmer",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "RW"
+          ],
+          "foot": "left",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-CHE-11",
+          "shirt_number": 11,
+          "display_name": "Jamie Gittens",
+          "primary_position": "LW",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-CHE-14",
+          "shirt_number": 14,
+          "display_name": "Jordan Henderson",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-CHE-17",
+          "shirt_number": 17,
+          "display_name": "Morgan Rogers",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "LW"
+          ],
+          "foot": "right",
+          "archetype": "shadow_striker"
+        },
+        {
+          "player_id": "P-CHE-18",
+          "shirt_number": 18,
+          "display_name": "Danny Welbeck",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "pressing_forward"
+        },
+        {
+          "player_id": "P-CHE-21",
+          "shirt_number": 21,
+          "display_name": "Jorrel Hato",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "CB"
+          ],
+          "foot": "left",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-CHE-22",
+          "shirt_number": 22,
+          "display_name": "Emmanuel Emegha",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "target_forward"
+        },
+        {
+          "player_id": "P-CHE-23",
+          "shirt_number": 23,
+          "display_name": "Geovany Quenda",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "RWB"
+          ],
+          "foot": "left",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-CHE-24",
+          "shirt_number": 24,
+          "display_name": "Reece James",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-CHE-25",
+          "shirt_number": 25,
+          "display_name": "Moisés Caicedo",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM",
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "anchor"
+        },
+        {
+          "player_id": "P-CHE-27",
+          "shirt_number": 27,
+          "display_name": "Malo Gusto",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "RWB"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-CHE-29",
+          "shirt_number": 29,
+          "display_name": "Pep Chavarría",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "LWB"
+          ],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-CHE-30",
+          "shirt_number": 30,
+          "display_name": "Aarón Anselmino",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-CHE-34",
+          "shirt_number": 34,
+          "display_name": "Josh Acheampong",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "RB"
+          ],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-CHE-41",
+          "shirt_number": 41,
+          "display_name": "Estêvão",
+          "primary_position": "RW",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-CHE-44",
+          "shirt_number": 44,
+          "display_name": "Gabriel Slonina",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-CHE-45",
+          "shirt_number": 45,
+          "display_name": "Roméo Lavia",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "deep_playmaker"
+        }
+      ]
+    },
+    {
+      "team_id": "T-MUN",
+      "code": "MUN",
+      "name": "Manchester United",
+      "short_name": "Man United",
+      "home_venue": "Old Trafford",
+      "primary_color": "#DA291C",
+      "secondary_color": "#000000",
+      "manager": "Michael Carrick",
+      "default_formation": "4-2-3-1",
+      "players": [
+        {
+          "player_id": "P-MUN-01",
+          "shirt_number": 1,
+          "display_name": "Senne Lammens",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-MUN-02",
+          "shirt_number": 2,
+          "display_name": "Diogo Dalot",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "right",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MUN-03",
+          "shirt_number": 3,
+          "display_name": "Noussair Mazraoui",
+          "primary_position": "RB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "right",
+          "archetype": "inverted_fullback"
+        },
+        {
+          "player_id": "P-MUN-04",
+          "shirt_number": 4,
+          "display_name": "Matthijs de Ligt",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-MUN-05",
+          "shirt_number": 5,
+          "display_name": "Harry Maguire",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MUN-06",
+          "shirt_number": 6,
+          "display_name": "Lisandro Martínez",
+          "primary_position": "CB",
+          "secondary_positions": [
+            "LB"
+          ],
+          "foot": "left",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MUN-07",
+          "shirt_number": 7,
+          "display_name": "Mason Mount",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "shadow_striker"
+        },
+        {
+          "player_id": "P-MUN-08",
+          "shirt_number": 8,
+          "display_name": "Bruno Fernandes",
+          "primary_position": "CAM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "advanced_playmaker"
+        },
+        {
+          "player_id": "P-MUN-09",
+          "shirt_number": 9,
+          "display_name": "Marcus Rashford",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "ST"
+          ],
+          "foot": "right",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-MUN-10",
+          "shirt_number": 10,
+          "display_name": "Matheus Cunha",
+          "primary_position": "LW",
+          "secondary_positions": [
+            "ST",
+            "CAM"
+          ],
+          "foot": "right",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-MUN-11",
+          "shirt_number": 11,
+          "display_name": "Joshua Zirkzee",
+          "primary_position": "ST",
+          "secondary_positions": [
+            "CAM"
+          ],
+          "foot": "right",
+          "archetype": "complete_forward"
+        },
+        {
+          "player_id": "P-MUN-12",
+          "shirt_number": 12,
+          "display_name": "Karl Darlow",
+          "primary_position": "GK",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "shot_stopper"
+        },
+        {
+          "player_id": "P-MUN-13",
+          "shirt_number": 13,
+          "display_name": "Patrick Dorgu",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "LWB",
+            "LW"
+          ],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MUN-15",
+          "shirt_number": 15,
+          "display_name": "Leny Yoro",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "stopper"
+        },
+        {
+          "player_id": "P-MUN-16",
+          "shirt_number": 16,
+          "display_name": "Amad Diallo",
+          "primary_position": "RW",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "direct_winger"
+        },
+        {
+          "player_id": "P-MUN-17",
+          "shirt_number": 17,
+          "display_name": "Andrey Santos",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "box_to_box"
+        },
+        {
+          "player_id": "P-MUN-18",
+          "shirt_number": 18,
+          "display_name": "Youri Tielemans",
+          "primary_position": "CM",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-MUN-19",
+          "shirt_number": 19,
+          "display_name": "Bryan Mbeumo",
+          "primary_position": "RW",
+          "secondary_positions": [
+            "ST"
+          ],
+          "foot": "left",
+          "archetype": "inside_forward"
+        },
+        {
+          "player_id": "P-MUN-20",
+          "shirt_number": 20,
+          "display_name": "Carlos Baleba",
+          "primary_position": "CDM",
+          "secondary_positions": [
+            "CM"
+          ],
+          "foot": "right",
+          "archetype": "anchor"
+        },
+        {
+          "player_id": "P-MUN-23",
+          "shirt_number": 23,
+          "display_name": "Luke Shaw",
+          "primary_position": "LB",
+          "secondary_positions": [
+            "CB"
+          ],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        },
+        {
+          "player_id": "P-MUN-25",
+          "shirt_number": 25,
+          "display_name": "Manuel Ugarte",
+          "primary_position": "CDM",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "anchor"
+        },
+        {
+          "player_id": "P-MUN-26",
+          "shirt_number": 26,
+          "display_name": "Ayden Heaven",
+          "primary_position": "CB",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "ball_playing_cb"
+        },
+        {
+          "player_id": "P-MUN-30",
+          "shirt_number": 30,
+          "display_name": "Benjamin Šeško",
+          "primary_position": "ST",
+          "secondary_positions": [],
+          "foot": "right",
+          "archetype": "target_forward"
+        },
+        {
+          "player_id": "P-MUN-37",
+          "shirt_number": 37,
+          "display_name": "Kobbie Mainoo",
+          "primary_position": "CM",
+          "secondary_positions": [
+            "CDM"
+          ],
+          "foot": "right",
+          "archetype": "playmaker"
+        },
+        {
+          "player_id": "P-MUN-41",
+          "shirt_number": 41,
+          "display_name": "Harry Amass",
+          "primary_position": "LB",
+          "secondary_positions": [],
+          "foot": "left",
+          "archetype": "attacking_fullback"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Squads and shirt numbers come from Wikipedia 2026-27 season and club articles (squad tables dated 1 Sep to 24 Oct 2026). They were not cross-checked against official club sites.",
+    "Players out on loan are excluded (e.g. Ethan Nwaneri and Tommy Setford at ARS). Each squad was trimmed to 25 by dropping fringe academy players (e.g. LIV: Davies, Jaroš, Danns, Koumas, McConnell, Chambers; CHE: Sharman-Lowe, Penders, Watson, Nicoll-Jazuli, Subuloye; MUN: Mee, Heaton, Kamason, Armer, J. Fletcher, T. Fletcher, Thompson, Lacey; MCI: Braithwaite).",
+    "Liverpool shirt numbers come from the club article's current-squad navbox, because the season article omitted most of them.",
+    "Preferred foot was assumed (default right) and is unverified for: Marli Salmon, Christos Tzolis, Elliot Anderson, Allan, Ryan McAidoo, Floyd Samba, Jérémy Jacquet, Trey Nyoni, Víctor Muñoz, Rio Ngumoha, Patrick Dorgu, Illan Meslier. Rayan Cherki is two-footed and recorded as right.",
+    "Primary positions, secondary positions and archetypes are editorial judgments mapped onto the project vocabulary, not official data. Examples: Lewis-Skelly and O'Reilly as LB, Cunha as LW, Barco as CM.",
+    "Notable summer 2026 moves per the sources: Rodri, Bernardo Silva and Stones left MCI. Enzo Fernández moved CHE to MCI. Salah, Konaté and Robertson left LIV, and Barcola joined. Martinelli and Trossard left ARS. Guimarães and Konsa joined ARS. Baleba and Tielemans joined MUN.",
+    "Managers per the sources: Arteta (ARS), Maresca (MCI, replaced Guardiola June 2026), Iraola (LIV, replaced Slot June 2026), Xabi Alonso (CHE, from 1 Jul 2026), Carrick (MUN).",
+    "Liverpool and Manchester United secondary colours (yellow and black) are chosen to keep the three red clubs distinguishable in the UI, using away/third-kit-style accents."
+  ]
+}
