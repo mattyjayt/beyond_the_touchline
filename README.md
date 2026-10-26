@@ -19,11 +19,11 @@ Open **http://localhost:3000** and press **Play**.
 
 **Demo path (3 minutes):**
 1. Drag the timeline to about 50' and set the speed to 30×.
-2. Around 57', Saka's take-ons dry up against Aït-Nouri, and a *Player form* insight appears.
-3. Around 61', a *Substitution* card compares KEEP with bench options such as Dowman and Madueke. Each option has pros, cons, evidence and stated uncertainty.
+2. From 50', Doku (Man City, LW) keeps beating Frimpong (Liverpool, RB) in the channel. Around 62', with the score 0-0, the hot-duel trigger fires.
+3. The bench options compare KEEP with substitutions such as Gomez and Bradley. Each option has pros, cons, evidence and stated uncertainty. At 70', Liverpool swap Szoboszlai into RB with Frimpong (a scripted `position_change`), and what happens next is not scripted.
 4. Click an evidence chip to highlight that event on the pitch and in the feed.
 5. Switch between **Fan** and **Analyst**. Both views are built from the same evidence, in different tones.
-6. Ask *"Should Arsenal change their right winger now?"*. Claude answers using the match tools.
+6. Ask *"Should Liverpool change their right back now?"*. Claude answers using the match tools.
 
 ## How it works
 
@@ -90,6 +90,6 @@ scripts/run.sh --backend-only                        # API docs at http://127.0.
 
 ## Known limitations (MVP)
 
-- One demo match (`SIM-001`, Arsenal v Man City) with a scripted storyline, plus 20 historical fixtures used for baselines.
+- One demo match (`SIM-001`, Liverpool v Man City) with a scripted storyline, plus 20 historical fixtures used for baselines. The storyline, seed and hash are in `docs/schema.md` §11. The seed search never looks at events after the 70' swap.
 - Rating v0 and xG are illustrative and uncalibrated. Player dots on the pitch are visual only, not tracking data.
 - Single-process replay clock shared by all viewers. No auth. Cloud provisioning is not built yet.

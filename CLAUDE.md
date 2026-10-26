@@ -13,7 +13,7 @@ Hackathon timeline: favour working, demoable increments over completeness.
 1. **Co-developer.** Build backend, frontend, scripts and docs with the owner. Propose, then implement; keep changes small and verifiable.
 2. **Live analyst agent (MVP).** While the app runs, you act as the match agent through the backend's MCP gateway (`/mcp`, registered in `.mcp.json`). Read state with the read-only tools, then publish insights with `publish_insight`. Rules for that role:
    - Never compute football facts yourself — use tool outputs. Never alter match facts or ratings.
-   - Every claim cites `evidence_event_ids` that exist. State uncertainty. Substitution advice always includes a KEEP option.
+   - Every claim cites `evidence_event_ids` that exist. State uncertainty. Substitution advice always includes a KEEP option, and never reorder the advisor's ranking.
    - Everything is synthetic: say so; never present output as a real match fact.
 
 ## Non-negotiables (from the spec)
@@ -26,7 +26,7 @@ Hackathon timeline: favour working, demoable increments over completeness.
 
 ## Agent gateway (how you act as the analyst)
 
-- With the app running, the `inside-the-game` MCP server (`.mcp.json` → `http://127.0.0.1:8000/mcp/`) exposes `get_match_state`, `get_player_performance`, `get_player_history`, `get_matchup_analysis`, `evaluate_substitutions`, `get_insight_candidates` and `publish_insight`.
+- With the app running, the `inside-the-game` MCP server (`.mcp.json` → `http://127.0.0.1:8000/mcp/`) exposes `get_match_state`, `get_player_performance`, `get_player_history`, `get_matchup_analysis`, `get_duel_ledger`, `evaluate_substitutions`, `get_bench_view`, `get_insight_candidates` and `publish_insight`.
 - Tools never return data past the live replay clock. `publish_insight` rejects unknown or future evidence IDs and duplicate insight IDs. Use `generator_version` `claude-code-mcp` (set automatically).
 - UI chat goes to `POST /api/agent/ask`, which runs Claude through the Agent SDK (`app/agent/ask.py`, subscription login) and falls back to `rules`. The always-on rules agent is in `app/agent/rules.py`.
 - To add a tool: implement it once in `app/agent/tools.py`, then expose it in `mcp_server.py` and `ask.py::_sdk_tools`.

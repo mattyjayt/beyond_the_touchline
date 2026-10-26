@@ -8,6 +8,7 @@ rating is fully explainable and reproducible from the event ledger.
 from collections import Counter
 
 from app.models import ROLE_GROUP, MatchEvent, Player, RatingContribution, RosterEntry
+from app.sim.formations import FORMATIONS
 
 METHODOLOGY_VERSION = "rating-v0"
 BASE_RATING = 6.0
@@ -33,6 +34,50 @@ KEY_PASS_BONUS = 0.25
 ASSIST_BONUS = 0.6
 CARD_DELTA = {"yellow": -0.3, "second_yellow": -1.0, "red": -1.5}
 BEATEN_DELTA = -0.06  # defender beaten on a successful take-on
+
+# Formation slot name -> position (slot names are consistent across formations).
+SLOT_POSITION: dict[str, str] = {s.slot: s.position for slots in FORMATIONS.values() for s in slots}
+
+
+def slot_position(slot: str) -> str:
+    """Position of a formation slot ("RCM" -> "CM"); positions map to themselves."""
+    return SLOT_POSITION.get(slot, slot)
+
+
+def is_out_of_position(player: Player, slot_position_: str) -> bool:
+    """True when the slot's position is neither the player's primary nor a secondary one."""
+    pos = slot_position(slot_position_)
+    return pos != player.primary_position and pos not in player.secondary_positions
+
+
+def _slot_changes(
+    player_id: str, rosters: list[RosterEntry], events: list[MatchEvent]
+) -> list[tuple[int, int, str | None]]:
+    """(event index, sec, slot) each time the player's slot changes; index -1 = kickoff.
+
+    Walks subs, red cards and position changes in event order, so ties at the same second
+    resolve by sequence rather than by clock.
+    """
+    slot = {r.player_id: r.formation_slot for r in rosters if r.roster_status == "starter"}
+    out: list[tuple[int, int, str | None]] = [(-1, 0, slot.get(player_id))]
+    for i, e in enumerate(events):
+        before = slot.get(player_id)
+        if e.event_type == "substitution" and e.player_id and e.recipient_id:
+            slot[e.recipient_id] = slot.pop(e.player_id, None)
+        elif e.event_type == "card" and e.qualifiers.get("card") in ("red", "second_yellow"):
+            slot.pop(e.player_id or "", None)
+        elif e.event_type == "position_change" and e.player_id in slot:
+            slot[e.player_id] = e.qualifiers.get("to_slot")
+        if slot.get(player_id) != before:
+            out.append((i, e.event_sec, slot.get(player_id)))
+    return out
+
+
+def slot_timeline(
+    player_id: str, rosters: list[RosterEntry], events: list[MatchEvent]
+) -> list[tuple[int, str | None]]:
+    """(sec, slot) from kickoff: the starting slot (None for the bench), then every change."""
+    return [(sec, slot) for _, sec, slot in _slot_changes(player_id, rosters, events)]
 
 
 def minutes_played(
@@ -103,14 +148,25 @@ def player_metrics(player_id: str, events: list[MatchEvent], asof: float) -> dic
 
 
 def live_rating(
-    player: Player, events: list[MatchEvent], asof: float, minutes: float
+    player: Player,
+    events: list[MatchEvent],
+    asof: float,
+    minutes: float,
+    rosters: list[RosterEntry] | None = None,
 ) -> tuple[float, list[RatingContribution], bool]:
-    group = ROLE_GROUP[player.primary_position]
+    """Without `rosters`, weights use the primary position's role group (legacy). With
+    `rosters`, each event uses the role group of the slot the player held at that event."""
+    primary = ROLE_GROUP[player.primary_position]
     evs = [e for e in events if e.event_sec <= asof]
+    changes = _slot_changes(player.player_id, rosters, evs) if rosters is not None else []
+    slot_at: str | None = None
     key, assists = key_pass_ids(evs)
     contribs: list[RatingContribution] = []
     actions = 0
-    for e in evs:
+    for i, e in enumerate(evs):
+        while changes and changes[0][0] < i:
+            slot_at = changes.pop(0)[2]
+        group = ROLE_GROUP[slot_position(slot_at)] if slot_at else primary
         if e.player_id == player.player_id:
             w = WEIGHTS.get((e.event_type, e.outcome))
             if w:

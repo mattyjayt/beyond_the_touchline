@@ -11,7 +11,17 @@ from pydantic import BaseModel
 from app.agent import tools
 from app.agent.ask import AskRequest, AskResponse, ask
 from app.config import get_settings
-from app.models import Match, MatchEvent, MatchState, Player, ReplayControl, RosterEntry, Team
+from app.models import (
+    BenchView,
+    Match,
+    MatchEvent,
+    MatchState,
+    Player,
+    ReplayControl,
+    RosterEntry,
+    Team,
+)
+from app.services.bench import build_bench_view
 
 router = APIRouter(prefix="/api")
 
@@ -86,6 +96,17 @@ def match_events(request: Request, match_id: str, until_sec: int | None = None) 
 async def match_state(request: Request, match_id: str, asof_sec: int | None = None) -> MatchState:
     _match(request, match_id)
     return _replays(request).get(match_id).state(asof_sec)
+
+
+@router.get("/matches/{match_id}/bench")
+def bench_view(
+    request: Request, match_id: str, team_id: str, asof_sec: int | None = None
+) -> BenchView:
+    """Assistant-coach view for ``team_id`` defending, clamped to the replay clock."""
+    match = _match(request, match_id)
+    if team_id not in (match.home_team_id, match.away_team_id):
+        raise HTTPException(400, f"{team_id} is not playing in {match_id}")
+    return build_bench_view(_store(request), _replays(request), match_id, team_id, asof_sec)
 
 
 @router.post("/matches/{match_id}/replay")

@@ -9,9 +9,10 @@ from app.agent import tools
 
 INSTRUCTIONS = """Inside the Game: SIMULATED football match analysis tools.
 Workflow: get_match_state -> get_insight_candidates / get_player_performance /
-evaluate_substitutions -> publish_insight (structured, evidence-cited). Never invent
-numbers; cite only event IDs returned by tools; include uncertainty; always weigh
-a KEEP option against substitutions. You cannot see past the replay clock."""
+get_duel_ledger / evaluate_substitutions -> publish_insight (structured, evidence-cited).
+Never invent numbers; cite only event IDs returned by tools; include uncertainty; always weigh
+a KEEP option against substitutions and position swaps, and never reorder the advisor's
+ranking. You cannot see past the replay clock."""
 
 mcp = MCPServer(name="inside-the-game", instructions=INSTRUCTIONS)
 
@@ -48,15 +49,39 @@ async def get_matchup_analysis(
 async def evaluate_substitutions(
     team_id: str, match_id: str = "SIM-001", asof_sec: int | None = None
 ) -> dict:
-    """KEEP + eligible substitution options with bounded scores, pros/cons and evidence."""
+    """KEEP vs SUB / position SWAP / SUB+SWAP for the team's losing duel: six bounded policy
+    dims (L F M A G R), projected vs observed duel win %, pros/cons, evidence, head-to-head."""
     return await tools.evaluate_substitutions(match_id, team_id, asof_sec)
+
+
+@mcp.tool()
+async def get_duel_ledger(
+    attacker_id: str,
+    slot: str,
+    team_id: str,
+    match_id: str = "SIM-001",
+    asof_sec: int | None = None,
+) -> dict:
+    """One attacker vs a defending slot (follows whoever holds it, e.g. "RB") or a defender id:
+    duels won/lost/recovered/fouls, channel shots and xG, rolling win %, duel points with
+    their stored (uncalibrated) model terms, evidence ids."""
+    return await tools.get_duel_ledger(match_id, attacker_id, slot, team_id, asof_sec)
+
+
+@mcp.tool()
+async def get_bench_view(
+    team_id: str, match_id: str = "SIM-001", asof_sec: int | None = None
+) -> dict:
+    """The assistant-coach page payload: sticky hot-duel alert, ledger, ranked KEEP/SUB/SWAP
+    options, radar cards, sprint race, swap impact once a position change happened."""
+    return await tools.get_bench_view(match_id, team_id, asof_sec)
 
 
 @mcp.tool()
 async def get_insight_candidates(
     match_id: str = "SIM-001", since_sec: int = 0, asof_sec: int | None = None
 ) -> dict:
-    """Deterministic triggers since a match second: goals, momentum swings, struggles."""
+    """Deterministic triggers since a match second: goals, momentum swings, hot duels."""
     return await tools.get_insight_candidates(match_id, since_sec, asof_sec)
 
 

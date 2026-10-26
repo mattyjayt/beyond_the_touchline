@@ -17,6 +17,7 @@ EventType = Literal[
     "foul",
     "card",
     "substitution",
+    "position_change",
 ]
 Outcome = Literal["success", "fail", "goal", "saved", "blocked", "off_target", "neutral"]
 
@@ -33,6 +34,7 @@ ALLOWED_OUTCOMES: dict[str, frozenset[str]] = {
     "foul": frozenset({"neutral"}),
     "card": frozenset({"neutral"}),
     "substitution": frozenset({"neutral"}),
+    "position_change": frozenset({"neutral"}),
 }
 
 REQUIRES_OPPONENT = frozenset({"take_on", "tackle", "foul"})
@@ -72,6 +74,10 @@ class MatchEvent(BaseModel):
             raise ValueError(f"{self.event_type} requires opponent_id")
         if self.event_type == "substitution" and self.recipient_id is None:
             raise ValueError("substitution requires recipient_id (incoming player)")
+        if self.event_type == "position_change" and not (
+            self.qualifiers.get("from_slot") and self.qualifiers.get("to_slot")
+        ):
+            raise ValueError("position_change requires qualifiers from_slot and to_slot")
         if self.body_part is not None and self.event_type != "shot":
             raise ValueError("body_part is only valid on shots")
         return self

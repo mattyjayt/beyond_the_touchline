@@ -31,6 +31,15 @@ export interface Team {
   strength_index: number;
 }
 
+export interface PhysicalProfile {
+  top_speed_kmh: number;
+  accel_ms2: number;
+  agility_idx: number;
+  stamina_idx: number;
+  stance_idx: number;
+  height_cm: number;
+}
+
 export interface Player {
   player_id: string;
   team_id: string;
@@ -41,6 +50,7 @@ export interface Player {
   foot: Foot;
   archetype: string;
   priors: PlayerPriors | null;
+  physical?: PhysicalProfile | null;
 }
 
 export interface Match {
@@ -74,7 +84,8 @@ export interface RosterEntry {
 
 export type EventType =
   | "period_start" | "period_end" | "restart" | "pass" | "carry" | "take_on"
-  | "shot" | "tackle" | "interception" | "foul" | "card" | "substitution";
+  | "shot" | "tackle" | "interception" | "foul" | "card" | "substitution"
+  | "position_change";
 export type Outcome =
   | "success" | "fail" | "goal" | "saved" | "blocked" | "off_target" | "neutral";
 
@@ -119,6 +130,7 @@ export interface Rating {
   role_group: RoleGroup;
   contributions: RatingContribution[];
   low_confidence: boolean;
+  out_of_position: boolean;
   methodology_version: string;
 }
 
@@ -147,7 +159,8 @@ export interface Recommendation {
   team_id: string;
   asof_sec: number;
   option_rank: number;
-  option_type: "keep" | "substitution";
+  option_type: "keep" | "substitution" | "position_swap" | "sub_and_swap";
+  // the player leaving / entering the hot slot (for a swap both stay on the pitch)
   outgoing_player_id: string | null;
   incoming_player_id: string | null;
   eligibility_status: "eligible" | "ineligible";
@@ -159,7 +172,170 @@ export interface Recommendation {
   pros: string[];
   cons: string[];
   supporting_event_ids: string[];
+  moves: Move[];
+  dims: OptionDims | null;
+  score: number | null; // policy-weighted sum of dims; KEEP = 0
+  projected_win_pct: number | null; // hot-slot defender vs the tormentor, duel model
+  observed_win_pct: number | null; // same pairing, this match so far
+  n_observed: number;
+  out_of_position: boolean;
   model_version: string;
+  synthetic: true;
+  // added by the agent tools when options are broadcast
+  incoming_name?: string | null;
+  outgoing_name?: string | null;
+  moves_named?: (Move & { name: string | null })[];
+}
+
+/** One leg of an option: on (bench -> slot), off (slot -> bench), move. */
+export interface Move {
+  player_id: string;
+  from_slot: string | null;
+  to_slot: string | null;
+  kind: "on" | "off" | "move";
+}
+
+/** Option vs KEEP on six policy dimensions, each in [-1, 1] (positive = better). */
+export interface OptionDims {
+  L: number; // live form vs expected
+  F: number; // fit
+  M: number; // projected duel win vs current
+  A: number; // attacking upside
+  G: number; // game state
+  R: number; // risk (negative = riskier)
+}
+
+// ---- subs advisor: matchups (backend/app/models/advisor.py) ---------------
+// Duel outcomes are from the defender's side; win rates are fractions in [0, 1].
+
+export type DuelOutcome = "won" | "lost" | "recovered" | "foul";
+export type Confidence = "low" | "medium" | "high";
+
+export interface DuelPoint {
+  event_id: string;
+  sec: number;
+  x: number; // attacker's frame
+  y: number;
+  outcome: DuelOutcome;
+  attacker_id: string;
+  defender_id: string;
+  terms: Record<string, number>; // stored qualifiers.duel (simulator model, uncalibrated)
+}
+
+export interface RollingPoint {
+  sec: number;
+  win_pct: number | null; // null when n == 0
+  n: number;
+}
+
+export interface DuelLedger {
+  attacker_id: string;
+  defender_ids: string[];
+  duels: number;
+  won: number;
+  lost: number;
+  recoveries: number;
+  fouls: number;
+  win_pct: number | null;
+  window_sec: number; // asof - since + 1
+  beaten: number; // lost without recovery (outright or then fouled)
+  beaten_per_10: number | null; // null when window_sec <= 0
+  channel_shots: number;
+  channel_xg: number;
+  defender_rating_swing: number | null;
+  confidence: Confidence;
+  points: DuelPoint[];
+  rolling: RollingPoint[];
+  evidence_event_ids: string[];
+  synthetic: true;
+}
+
+export interface HotDuel {
+  team_id: string;
+  defender_id: string;
+  defender_slot: string;
+  attacker_id: string;
+  beaten_20m: number;
+  win_pct_20m: number | null;
+  n_20m: number;
+  first_fired_sec: number | null;
+  synthetic: true;
+}
+
+export interface SwapImpact {
+  swap_sec: number;
+  before: DuelLedger;
+  after: DuelLedger;
+  synthetic: true;
+}
+
+export interface RaceCurve {
+  player_id: string;
+  name: string;
+  t: number[]; // seconds, 0..horizon
+  d: number[]; // metres at each t (backend samples; the UI only interpolates)
+  t5m: number;
+  d1s: number;
+  d2s: number;
+}
+
+export interface RaceResult {
+  curves: RaceCurve[];
+  gap1s: Record<string, number>; // metres vs the first curve (the tormentor)
+  gap2s: Record<string, number>;
+  reaction_s: number;
+  label: string;
+  synthetic: true;
+}
+
+export interface ImportanceItem {
+  var_id: string;
+  name: string;
+  family: string;
+  importance: number;
+  rank: number;
+}
+
+export type RadarAxis =
+  | "pace" | "acceleration" | "agility" | "stamina" | "defending" | "stance" | "duel_win";
+export const RADAR_AXES: RadarAxis[] = [
+  "pace", "acceleration", "agility", "stamina", "defending", "stance", "duel_win",
+];
+
+export interface PlayerCard {
+  player_id: string;
+  name: string;
+  slot: string | null; // current slot, null on the bench
+  position: string;
+  physical: PhysicalProfile;
+  priors: PlayerPriors;
+  // radar axes on 0-100. duel_win: projected % of 1v1s won vs the tormentor
+  // (for the tormentor: projected % he wins vs the current defender)
+  profile: Record<RadarAxis, number>;
+}
+
+/** GET /api/matches/{id}/bench: the assistant-coach page, clamped to the replay clock. */
+export interface BenchView {
+  match_id: string;
+  team_id: string;
+  asof_sec: number;
+  minute: number;
+  score: Record<string, number>;
+  alert: HotDuel | null; // sticky: the first hot duel up to asof, with current stats
+  alert_active: boolean; // whether that duel is firing right now
+  tormentor: PlayerCard | null;
+  defender: PlayerCard | null; // current holder of the alerted slot
+  ledger: DuelLedger | null;
+  options: Recommendation[];
+  cards: Record<string, PlayerCard>;
+  race: RaceResult | null;
+  impact: SwapImpact | null;
+  executed_option_rank_at_alert: number | null;
+  importance: ImportanceItem[];
+  importance_note: string; // method, n, AUC and the methodology-demo caveat ("" if no study)
+  slots: Record<string, string>; // our on-pitch players -> slot at asof (formation preview)
+  briefing_seed: string;
+  briefing_evidence_ids: string[];
   synthetic: true;
 }
 

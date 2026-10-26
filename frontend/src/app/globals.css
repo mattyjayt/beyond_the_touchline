@@ -15,6 +15,13 @@
   --pitch-a: #1d5a34;
   --pitch-b: #1a5230;
   --pitch-line: rgb(255 255 255 / 0.75);
+  /* assistant-coach charts: us (Liverpool red) vs the tormentor (City sky blue) */
+  --us: #c8102e;
+  --them: #6cabdd;
+  --ghost: rgb(255 255 255 / 0.45);
+  --grid: rgb(255 255 255 / 0.09);
+  --win: #3ddc84;
+  --loss: #ff5a5f;
 }
 
 @theme inline {

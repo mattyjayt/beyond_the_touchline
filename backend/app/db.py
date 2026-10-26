@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS players (
   player_id TEXT PRIMARY KEY, team_id TEXT NOT NULL REFERENCES teams(team_id),
   display_name TEXT NOT NULL, shirt_number INTEGER NOT NULL, primary_position TEXT NOT NULL,
   secondary_positions TEXT NOT NULL, foot TEXT NOT NULL, archetype TEXT NOT NULL,
-  priors TEXT
+  priors TEXT,
+  physical TEXT
 );
 CREATE TABLE IF NOT EXISTS matches (
   match_id TEXT PRIMARY KEY, kind TEXT NOT NULL,
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
 );
 """
 
-JSON_COLS = {"secondary_positions", "priors", "qualifiers", "evidence_event_ids"}
+JSON_COLS = {"secondary_positions", "priors", "physical", "qualifiers", "evidence_event_ids"}
 
 
 def connect(path: Path) -> sqlite3.Connection:

@@ -6,11 +6,12 @@ the shared tools as in-process MCP tools. Falls back to `rules` on any failure.
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from app.agent import tools
+from app.agent.rules import option_label
 
 log = logging.getLogger(__name__)
 EVIDENCE_RE = re.compile(r"SIM-[A-Z0-9]+-E\d{4}")
@@ -21,17 +22,26 @@ Rules (non-negotiable):
 - Never compute or invent football facts or numbers. Use ONLY values returned by your tools.
 - Cite evidence event IDs exactly as returned (e.g. SIM-001-E0101) in square brackets.
 - State uncertainty. A low rating is not an automatic substitution; when discussing changes,
-  always mention the KEEP option alongside substitution options.
+  always mention the KEEP option alongside substitutions and position swaps, and never reorder
+  the ranking evaluate_substitutions returns.
 - You cannot see beyond the current replay clock. Call get_match_state first.
 Audience "fan": short, vivid, plain language (<= 90 words).
 Audience "analyst": precise, metric-led, include rating/form deviation and option ranking (<= 160 words).
 """
 
 
+BRIEFING_PROMPT = """Write a 3-4 sentence assistant-coach briefing for {team} (SIMULATED match).
+Call get_bench_view(team_id={team_id}) first and use ONLY its numbers. Name the losing duel and
+cite 2-4 evidence event IDs from it in square brackets. Present the advisor's options in the
+order returned - never reorder them - and end with the KEEP alternative. Say it is simulated."""
+
+
 class AskRequest(BaseModel):
     match_id: str
-    question: str
+    question: str = ""
     audience: str = "fan"
+    mode: Literal["chat", "briefing"] = "chat"
+    team_id: str | None = None  # briefing: the advising team (default: home)
 
 
 class AskResponse(BaseModel):
@@ -80,11 +90,19 @@ def _sdk_tools(match_id: str) -> list[Any]:
         wrap(tools.get_matchup_analysis, "get_matchup_analysis",
              "Duels between a player and an opponent in this match plus prior meetings.",
              {**mid, "player_id": str, "opponent_id": str}),
+        wrap(tools.get_duel_ledger, "get_duel_ledger",
+             "One attacker vs a defending slot (e.g. RB) or defender: duels, outcomes, channel "
+             "threat, rolling win %, duel points with model terms, evidence IDs.",
+             {**mid, "attacker_id": str, "slot": str, "team_id": str}),
         wrap(tools.evaluate_substitutions, "evaluate_substitutions",
-             "KEEP + eligible substitution options with scores, pros/cons, evidence.",
+             "KEEP vs SUB / position SWAP / SUB+SWAP for the team's losing duel: policy dims, "
+             "projected vs observed duel win %, pros/cons, evidence, head-to-head.",
              {**mid, "team_id": str}),
+        wrap(tools.get_bench_view, "get_bench_view",
+             "Assistant-coach page payload: sticky alert, ledger, ranked options, radar cards, "
+             "sprint race, swap impact.", {**mid, "team_id": str}),
         wrap(tools.get_insight_candidates, "get_insight_candidates",
-             "Deterministic triggers (goals, momentum, struggling players) since a second.",
+             "Deterministic triggers (goals, momentum, hot duels) since a second.",
              {**mid, "since_sec": int}),
     ]  # fmt: skip
 
@@ -104,7 +122,8 @@ async def ask_claude(req: AskRequest) -> AskResponse:
         f"mcp__itg__{n}"
         for n in (
             "get_match_state", "get_player_performance", "get_player_history",
-            "get_matchup_analysis", "evaluate_substitutions", "get_insight_candidates",
+            "get_matchup_analysis", "get_duel_ledger", "evaluate_substitutions",
+            "get_bench_view", "get_insight_candidates",
         )
     ]  # fmt: skip
     options = ClaudeAgentOptions(
@@ -115,10 +134,16 @@ async def ask_claude(req: AskRequest) -> AskResponse:
         setting_sources=[],  # isolate from local CLAUDE.md / settings
         max_turns=10,
     )
+    teams = tools.ctx().store.teams
+    if req.mode == "briefing":
+        team_id = _briefing_team(req)
+        question = BRIEFING_PROMPT.format(team=teams[team_id].name, team_id=team_id)
+    else:
+        question = req.question
     prompt = (
         f"match_id={req.match_id}; audience={req.audience}.\n"
-        f"Teams: {json.dumps({t: s.name for t, s in tools.ctx().store.teams.items()})}\n"
-        f"Question: {req.question}"
+        f"Teams: {json.dumps({t: s.name for t, s in teams.items()})}\n"
+        f"Question: {question}"
     )
     texts: list[str] = []
     final: str | None = None
@@ -138,7 +163,22 @@ async def ask_claude(req: AskRequest) -> AskResponse:
 # ------------------------------------------------------------------------ rules
 
 
+def _briefing_team(req: AskRequest) -> str:
+    return req.team_id or tools.ctx().store.matches[req.match_id].home_team_id
+
+
+async def briefing_rules(req: AskRequest, note: str | None = None) -> AskResponse:
+    """Deterministic briefing: the bench view's seed text and its evidence."""
+    view = await tools.get_bench_view(req.match_id, _briefing_team(req))
+    answer = view["briefing_seed"] + (f"\n[{note}]" if note else "")
+    return AskResponse(
+        answer=answer, evidence_event_ids=view["briefing_evidence_ids"], provider="rules-v0"
+    )
+
+
 async def ask_rules(req: AskRequest, note: str | None = None) -> AskResponse:
+    if req.mode == "briefing":
+        return await briefing_rules(req, note)
     state = await tools.get_match_state(req.match_id)
     store = tools.ctx().store
     home, away = state["home"], state["away"]
@@ -161,12 +201,9 @@ async def ask_rules(req: AskRequest, note: str | None = None) -> AskResponse:
         ev = await tools.evaluate_substitutions(req.match_id, team_id, state["asof_sec"])
         lines.append(f"Diagnosis: {ev['diagnosis']}.")
         for o in ev["options"]:
-            label = (
-                "KEEP"
-                if o["option_type"] == "keep"
-                else f"{o['incoming_name']} for {o['outgoing_name']}"
+            lines.append(
+                f"{o['option_rank']}) {option_label(o)} — + {o['pros'][0]}; − {o['cons'][0]}"
             )
-            lines.append(f"{o['option_rank']}) {label} — + {o['pros'][0]}; − {o['cons'][0]}")
         lines.append(ev["caveat"])
         evidence = ev["options"][0]["supporting_event_ids"]
     if note:

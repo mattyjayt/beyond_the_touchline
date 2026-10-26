@@ -9,7 +9,7 @@ Narrowed from the spec (`Inside_the_Game_Synthetic_Data_and_Schema_Specification
 | Spec item | MVP decision | Why |
 |---|---|---|
 | 4 fictional clubs, ~100 players | **5 real PL clubs** (ARS, MCI, LIV, CHE, MUN), 20–25 real squad players each | Owner decision; abilities stay synthetic |
-| 20 historical fixtures + 1 demo | **20 historical** (double round robin, 8 per club) + **1 demo** (`SIM-001`, ARS vs MCI) | Gives last-5 baselines; same generator |
+| 20 historical fixtures + 1 demo | **20 historical** (double round robin, 8 per club) + **1 demo** (`SIM-001`, LIV vs MCI; storyline in §11) | Gives last-5 baselines; same generator |
 | ~30–40k historical events | ~1.5–1.8k events/match → ~30–36k total | Matches spec volume |
 | 14+ event types, 6 families | **12 types** (below) | Enough for ratings, alerts and sub advice |
 | `possessions` table | `possession_id` column on events | Derivable; no extra writes |
@@ -35,7 +35,7 @@ Narrowed from the spec (`Inside_the_Game_Synthetic_Data_and_Schema_Specification
 
 **teams** — `team_id` PK · `code` UNIQUE · `name` · `short_name` · `home_venue` · `primary_color` · `secondary_color` · `manager` · `default_formation` · `strength_index` (synthetic 0–1)
 
-**players** — `player_id` PK · `team_id` FK · `display_name` · `shirt_number` · `primary_position` · `secondary_positions` JSON · `foot` · `archetype` · `priors` JSON (synthetic 0–100: `passing`, `dribbling`, `finishing`, `defending`, `physical`, `goalkeeping`)
+**players** — `player_id` PK · `team_id` FK · `display_name` · `shirt_number` · `primary_position` · `secondary_positions` JSON · `foot` · `archetype` · `priors` JSON (synthetic 0–100: `passing`, `dribbling`, `finishing`, `defending`, `physical`, `goalkeeping`) · `physical` JSON (synthetic, real units: `top_speed_kmh` 29–37.4, `accel_ms2` 6.0–7.9, `agility_idx`, `stamina_idx`, `stance_idx` (side-on tendency), `height_cm`; derived `speed_idx`, `accel_idx`, `time_0_5m_s`). Demo players' values are pinned (`squads.py`: `PINNED_PHYSICAL`, `PINNED_PRIORS`).
 
 Positions: `GK RB CB LB RWB LWB CDM CM CAM RM LM RW LW ST`.
 Role groups (for ratings): `GK` · `DEF` (RB CB LB RWB LWB) · `MID` (CDM CM CAM RM LM) · `ATT` (RW LW ST).
@@ -69,7 +69,7 @@ Role groups (for ratings): `GK` · `DEF` (RB CB LB RWB LWB) · `MID` (CDM CM CAM
 | `qualifiers` | JSON | typed per event type (below), versioned by `generator_version` |
 | `source_type` | enum | always `synthetic_simulation` |
 
-### Event types (12) and allowed outcomes
+### Event types (13) and allowed outcomes
 
 | Type | Outcomes | Qualifiers |
 |---|---|---|
@@ -77,13 +77,14 @@ Role groups (for ratings): `GK` · `DEF` (RB CB LB RWB LWB) · `MID` (CDM CM CAM
 | `restart` | `neutral` | `restart_type`: `kickoff`, `goal_kick`, `corner`, `free_kick`, `throw_in` |
 | `pass` | `success`, `fail` | `cross`, `through_ball` (bool) |
 | `carry` | `success`, `fail` | — |
-| `take_on` | `success`, `fail` | — (requires `opponent_id`) |
+| `take_on` | `success`, `fail` | `duel`: `{tech, burst, agil, stance, touch, ctx, script, z, p_beat, p_recover}` (duel model `duel-v2`, uncalibrated; `script` ≠ 0 only in the demo window) (requires `opponent_id`) |
 | `shot` | `goal`, `saved`, `blocked`, `off_target` | `xg` (illustrative), `assist_event_id`? |
-| `tackle` | `success`, `fail` | — (requires `opponent_id`) |
+| `tackle` | `success`, `fail` | `recovery` (bool: the beaten defender won it straight back) (requires `opponent_id`) |
 | `interception` | `success` | — |
 | `foul` | `neutral` | `card_event_id`? |
 | `card` | `neutral` | `card`: `yellow`, `second_yellow`, `red` |
 | `substitution` | `neutral` | — (`player_id` out, `recipient_id` in) |
+| `position_change` | `neutral` | `from_slot`, `to_slot` (`player_id` moves; `recipient_id` = swap partner). A swap is two events at the same second. Both players on the pitch; one player per slot after the second; not a substitution; no possession change. |
 
 **Derived tags, never separate events** (spec modelling rule): `key_pass` = successful pass whose recipient's next action in the same possession is a shot; `assist` = key pass on a `goal`; `progressive` = pass/carry that moves the ball ≥ 25 units closer to the opponent goal (threshold versioned).
 
@@ -97,7 +98,9 @@ Role groups (for ratings): `GK` · `DEF` (RB CB LB RWB LWB) · `MID` (CDM CM CAM
 
 **Team metrics** — `possession_pct` (by possession duration), `shots`, `shots_on_target`, `xg`, `passes`, `pass_accuracy`, `momentum` (rolling 5-min threat index: shots ×3 + final-third entries + successful take-ons, home minus away).
 
-**ratings** (snapshots) — `rating_id` · `match_id` · `player_id` · `asof_sec` · `live_rating` (0–10) · `expected_rating`? (recency-weighted last-5 baseline at same role; prior matches only) · `form_delta` · `role_group` · `contributions` JSON (`[{event_id, delta, reason}]` — makes every rating explainable) · `low_confidence` (minutes < 15 or actions < 5) · `methodology_version`.
+**ratings** (snapshots) — `rating_id` · `match_id` · `player_id` · `asof_sec` · `live_rating` (0–10) · `expected_rating`? (recency-weighted last-5 baseline at same role; prior matches only) · `form_delta` · `role_group` · `contributions` JSON (`[{event_id, delta, reason}]` — makes every rating explainable) · `low_confidence` (minutes < 15 or actions < 5) · `out_of_position` (slot is neither primary nor secondary) · `methodology_version`. Weights use the role group of the slot held at each event's time.
+
+**Duel ledger** (`services/matchups.py`, as of `asof`) — one attacker vs a defending slot (follows whoever holds it) or a defender: `duels`, `won` (fails + recoveries), `lost`, `recoveries`, `fouls`, `win_pct`, `beaten`, `beaten_per_10`, `channel_shots`/`channel_xg` (possessions with the attacker's successful take-on/carry in the guarded channel), `defender_rating_swing`, `confidence` (n < 4 low, 4–9 medium, 10+ high), `points` (with stored duel terms), `rolling` (10-min win %, every 60 s). **Hot duel** trigger: beaten ≥ 6 in 20 min, or win % ≤ 30% with n ≥ 8.
 
 Rating v0 (illustrative, *not* Opta/Sofascore): base 6.0 + Σ bounded role-weighted event contributions, clipped to [0, 10]. Weights live in a versioned config.
 
@@ -105,7 +108,9 @@ Rating v0 (illustrative, *not* Opta/Sofascore): base 6.0 + Σ bounded role-weigh
 
 **insights** — spec §8 contract: `insight_id`, `kind` (`momentum_shift`, `player_form`, `tactical_alert`, `substitution_opportunity`, `key_moment`), `match_id`, `asof_sec`, `audience` (`fan`|`analyst`), `headline`, `explanation`, `evidence_event_ids` (non-empty, must exist), `recommendation_id`?, `uncertainty`, `generator_version` (`rules-v0`, `claude-code`, `foundry-…`), `synthetic: true`.
 
-**recommendations** — spec §7 option fields: `rec_id`, `match_id`, `team_id`, `asof_sec`, `option_rank`, `option_type` (`keep`|`substitution`), `outgoing_player_id`?, `incoming_player_id`?, `eligibility_status`, `attack_delta_estimate`, `control_delta_estimate`, `defensive_risk_delta`, `tactical_fit_score`, `confidence` (`low`|`medium`|`high`, heuristic not probability), `pros`, `cons`, `supporting_event_ids`, `model_version`. A KEEP option is always present.
+**recommendations** — spec §7 option fields: `rec_id`, `match_id`, `team_id`, `asof_sec`, `option_rank`, `option_type` (`keep`|`substitution`|`position_swap`|`sub_and_swap`), `outgoing_player_id`?/`incoming_player_id`? (leaving/entering the hot slot), `eligibility_status`, `attack_delta_estimate`, `control_delta_estimate`, `defensive_risk_delta`, `tactical_fit_score`, `confidence` (`low`|`medium`|`high`: lowest of evidence, slot-history and fit bands; heuristic, not a probability), `pros`, `cons` (quote numbers), `supporting_event_ids`, `moves` (`[{player_id, from_slot, to_slot, kind: on|off|move}]`), `dims` (`L F M A G R` in [−1, 1], vs KEEP), `score` (policy-weighted sum; KEEP = 0), `projected_win_pct` (duel model vs the tormentor, k=6 shrinkage to observed), `observed_win_pct`, `n_observed`, `out_of_position`, `model_version` (`advisor-v1`). A KEEP option is always present; KEEP + up to 4 others.
+
+**Bench view** (`GET /api/matches/{id}/bench?team_id=&asof_sec=`, clamped to the replay clock) — `alert` (sticky: the first hot duel, tracked as the slot changes hands) + `alert_active`, `tormentor`/`defender`/`cards` (radar profiles, 7 axes 0–100), `ledger`, `options`, `race` (0–3 s sprint curves), `impact` (20′ before vs since the latest `position_change` of the slot), `executed_option_rank_at_alert`, `importance` + `importance_note` (duel study, methodology demo), `slots`, `briefing_seed`, `briefing_evidence_ids`, `synthetic: true`.
 
 ## 9. Stream contract (SSE `GET /api/matches/{id}/stream`)
 
@@ -123,3 +128,53 @@ Each message is `{"type": ..., "data": ...}`:
 ## 10. Validation (generator gate)
 
 Mirrors spec §9: FK integrity · chronology (sequence/clock monotonic, no events after `period_end`) · presence (actor on pitch; subs from bench, ≤ 5 subs, no re-entry) · possession changes only on failed pass/carry/take-on, successful tackle/interception, shots, restarts · scoring (`goal` count = match score) · per-type outcome validity · coordinates in [0, 100] · reproducibility (same seed ⇒ same event hash).
+
+## 11. Demo match `SIM-001` (simulated storyline, sim-v0.3)
+
+> Everything below is **simulated**. The players are real reference names; the match, the duels and the outcome are synthetic.
+
+**Recorded generation** (`uv run python -m app.sim.generate`, `SIM_SEED=2026`, `generator_version sim-v0.3`, duel model `duel-v2`):
+
+| | |
+|---|---|
+| Demo seed | `2036` (search started at `SIM_SEED`; first seed that passed) |
+| `script_boost` | `6` (lowest of the candidates 6, 8, 10, 12) |
+| Demo event hash | `43aa8e2470adea9e` |
+| Final score | Liverpool 1-0 Manchester City |
+
+**Setup** (`app/sim/generate.py::demo_scenario`): Liverpool are at home. Frimpong (`P-LIV-30`) is forced to RB, Szoboszlai (`P-LIV-08`) to RW and Doku (`P-MCI-11`) to LW. Gomez (`P-LIV-02`) and Bradley (`P-LIV-12`) are forced onto the bench.
+
+**What is scripted:**
+- From 50' (3000 s) to full time, Doku is the focus player. He gets more of the ball and attempts more take-ons, and he always meets whoever holds Liverpool's RB slot.
+- The duel `script` term (+6 to the logit numerator, so +0.6 to z) applies **only** while Frimpong holds RB. It is stored on every take-on as `qualifiers.duel.script`.
+- Spec 3.4 follow-up: after a scripted take-on win in the RB channel, Doku's next action has its shot weight doubled and gains a cross option.
+- At 70' (4200 s) Liverpool swap Szoboszlai and Frimpong (two `position_change` events at 4200 s). This happens whatever the advisor ranks. Liverpool make no substitutions before 75'; normal auto-subs follow.
+- **After the swap, the pairing is still forced but the outcomes are not scripted.** Doku still meets the RB holder (now Szoboszlai) at the same rate, but `script` is 0. Every post-swap duel is decided by the duel model alone.
+
+**How the seed was chosen.** The search loops over `script_boost` (outermost) and then seeds `SIM_SEED..SIM_SEED+499`. It keeps the first demo that meets all of these:
+- Doku beats Frimpong at least 6 times between 50' and 70'.
+- The generic `hot_duels` trigger for Liverpool first fires between 55' and 68' (3300–4080 s), on (RB, Doku).
+- Liverpool are level or exactly one goal behind when it fires.
+- Neither team has had a player sent off before 70', so it is 11 v 11 at the alert.
+
+Before the search it also checks, once, that Szoboszlai and Gomez match or beat Frimpong on accel and stance (the defensive physical index). This is reference data, so it does not depend on the seed.
+
+**Disclosure: the seed search never inspects post-swap events.** Every criterion is evaluated on the events before 4200 s (`generate.py::storyline`), so what happens after the swap cannot influence which seed is chosen. The search only fails loudly if the forced swap did not happen (for example after a red card); it never moves on to another seed for that reason.
+
+**What the recorded demo shows** (derived from events):
+- Between 50' and 70', Doku took on Frimpong 11 times and won 10.
+- The trigger first fired at 3714 s (61.9'): (RB Frimpong vs Doku), beaten 5 of 8 in 20 minutes, defender win rate 25%. The score was 0-0. Frimpong was booked at 3725 s.
+- After the swap, Szoboszlai's duels against Doku are unscripted, and the samples are small. The swap-impact panel compares the 20 minutes before the swap with the time since it (equal-footing windows):
+  - Defender win rate: Frimpong 21% (n=14) before, Szoboszlai 47% (n=19) after.
+  - Duels lost per 10 minutes: 4.0 before, 5.0 after (Doku took him on more often).
+  - Channel shots: 0 before, 1 after (xG 0.01).
+  - Liverpool scored at 4580 s (76:20) and won 1-0. This is not attributed to the swap.
+
+**Calibration (pre-registered, sim-v0.3).** These settings were fixed using only league-wide data from the 20 historical matches and model projections, never demo outcomes after the swap:
+- Frimpong's defending prior is pinned to 68 (spec 3.1: "modest").
+- The duel model subtracts a baseline (`DUEL_BASELINE = 12`) inside z. That is the smallest integer that puts historical take-on success in 45–52%; it is now 50.9%, against 64.8% before.
+- Cards: a straight red is 0.15% per foul, and a booked player's chance of another card is scaled by 0.1 (`SECOND_YELLOW_FACTOR`). Historical dismissals fell from 0.8 to about 0.05 a match (the target was ≤ 0.2).
+- The hot-duel trigger is beaten ≥ 6 in 20 minutes, or a defender win rate ≤ 30% with n ≥ 8. These were the first pre-listed thresholds to pass the rarity test, which checks every second and allows the trigger to fire in no more than 3 of the 20 historical matches. It now fires in none of them.
+- The demo seed search was then re-run with two added pre-swap criteria (11 v 11, level or one behind).
+- Disclosure: the seed search was re-run after an earlier seed's post-swap result had been seen. The reason was pre-swap only: that seed had Liverpool down to 9 men by 53'. The new seed's post-swap result is reported as it came out.
+

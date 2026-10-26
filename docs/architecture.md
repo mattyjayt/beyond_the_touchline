@@ -92,9 +92,36 @@ ratings**.
 | `get_player_performance` | read | `match_id, player_id, asof_sec` | Current metrics and rating, plus source event IDs |
 | `get_player_history` | read | `player_id, role, lookback` | Comparable historical baseline and sample size |
 | `get_matchup_analysis` | read | `player_id, defender_id, match_id` | Observed simulated duel data and historical context |
-| `evaluate_substitutions` | read | `match_id, team_id, asof_sec` | KEEP and eligible sub options with scores, risks and evidence |
-| `get_insight_candidates` | read | `match_id, since_sec` | Statistical triggers and confidence flags |
+| `get_duel_ledger` | read | `match_id, attacker_id, slot, team_id, asof_sec` | One attacker vs a defending slot (or defender): duels, outcomes, channel threat, rolling win %, duel points with model terms |
+| `evaluate_substitutions` | read | `match_id, team_id, asof_sec` | KEEP vs SUB / position SWAP / SUB+SWAP for the hot duel: policy dims, projected vs observed win %, pros/cons, evidence, head-to-head |
+| `get_bench_view` | read | `match_id, team_id, asof_sec` | The assistant-coach page payload (sticky alert, ledger, options, radar cards, sprint race, swap impact, briefing seed) |
+| `get_insight_candidates` | read | `match_id, since_sec` | Triggers (goals, momentum, hot duels) and confidence flags |
 | `publish_insight` | **write (only one)** | Spec §8 insight payload | Validates that the evidence IDs exist and that numbers match tool outputs, stores the row in `insights` and pushes an `insight` event on the SSE stream |
+
+### Subs advisor pipeline (assistant coach)
+
+All arithmetic is in tested services; the UI and the LLM only render and narrate. Everything is simulated.
+
+```mermaid
+flowchart LR
+  EV[events + rosters<br/>as of asof] --> MU[services/matchups.py<br/>slots · duel ledger · hot_duels · swap_impact]
+  REF[players: priors + physical] --> DUEL[sim/duel.py<br/>duel_prob duel-v2]
+  MU --> ADV[services/advisor.py<br/>KEEP / SUB / SWAP / SUB+SWAP<br/>dims L F M A G R · policy weights]
+  DUEL --> ADV
+  REF --> RACE[services/race.py<br/>0–3 s sprint curves]
+  STUDY[analysis/duel_study.py<br/>variable_importance.json] --> BENCH
+  ADV --> BENCH[services/bench.py<br/>BenchView]
+  MU --> BENCH
+  RACE --> BENCH
+  BENCH --> API["GET /api/matches/{id}/bench"]
+  BENCH --> TOOLS[get_bench_view · evaluate_substitutions · get_duel_ledger]
+  API --> UI["/match/{id}/bench (Next.js)"]
+  TOOLS --> BRIEF["POST /api/agent/ask mode=briefing<br/>Claude, else rules briefing_seed"]
+```
+
+- The hot-duel trigger fires on beaten ≥ 6 in 20 min, or win % ≤ 30% with n ≥ 8. The bench alert is sticky once fired.
+- The demo's 70' swap is scripted whatever the advisor ranks; the page reports the executed swap's rank at the alert.
+- The duel study is a methodology demo: its importance mirrors the generator.
 
 ### The tools are exposed three ways
 

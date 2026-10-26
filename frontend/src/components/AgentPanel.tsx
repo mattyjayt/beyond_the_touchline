@@ -107,7 +107,7 @@ export function AgentPanel({ matchId, insights, provider, onEvidence }: {
       <form onSubmit={ask} className="border-t border-[var(--line)] p-3">
         <div className="flex gap-2">
           <input value={question} onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask about the match… e.g. Should Arsenal change the right wing?"
+            placeholder="Ask about the match… e.g. Should Liverpool change the right back?"
             className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 text-sm outline-none focus:border-[var(--accent)]" />
           <button disabled={busy} className="h-10 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-black disabled:opacity-50">
             Ask
