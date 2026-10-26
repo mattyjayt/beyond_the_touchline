@@ -40,10 +40,12 @@ class DuelLedger(BaseModel):
     recoveries: int
     fouls: int
     win_pct: float | None = Field(default=None, ge=0, le=1)
+    win_ci: list[float] | None = None  # 95% Wilson interval on win_pct; None below 5 duels
     window_sec: int  # asof - since + 1: the span the counts cover
     beaten: int  # lost without recovery (outright or then fouled), as in the hot-duel trigger
     beaten_per_10: float | None = None  # beaten * 600 / window_sec; None if window_sec <= 0
     channel_shots: int
+    channel_entries: int = 0  # completed crosses / box entries from the channel's possessions
     channel_xg: float
     defender_rating_swing: float | None = None
     confidence: Confidence
@@ -62,13 +64,29 @@ class HotDuel(BaseModel):
     win_pct_20m: float | None = Field(default=None, ge=0, le=1)
     n_20m: int
     first_fired_sec: int | None = None
+    # the slot's last 20 min across every holder (the alert's subject is the channel, but the
+    # fields above are always the CURRENT holder's own record)
+    slot_beaten_20m: int = 0
+    slot_n_20m: int = 0
+    slot_win_pct_20m: float | None = Field(default=None, ge=0, le=1)
     synthetic: Literal[True] = True
+
+
+class ImpactPoint(BaseModel):
+    """The after-swap ledger at a fixed number of minutes after the change."""
+
+    minutes: int
+    n: int
+    win_pct: float | None
+    beaten_per_10: float | None
 
 
 class SwapImpact(BaseModel):
     swap_sec: int
-    before: DuelLedger
-    after: DuelLedger
+    before: DuelLedger  # the 20 minutes before the swap
+    after: DuelLedger  # since the swap
+    win_separated: bool  # the two 95% intervals do not overlap (only then show a direction)
+    trajectory: list[ImpactPoint] = []  # after-window at 5, 10, 20 minutes, once reached
     synthetic: Literal[True] = True
 
 
@@ -123,3 +141,5 @@ class ImportanceItem(BaseModel):
     family: str
     importance: float
     rank: int
+    rank_lo: int | None = None  # best rank across the study's seeds
+    rank_hi: int | None = None  # worst rank across the study's seeds

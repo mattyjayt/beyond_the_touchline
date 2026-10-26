@@ -24,6 +24,7 @@ from app.models import (
     DuelOutcome,
     DuelPoint,
     HotDuel,
+    ImpactPoint,
     MatchEvent,
     RollingPoint,
     RosterEntry,
@@ -36,9 +37,13 @@ from app.sim.formations import FORMATIONS, formation_slots
 ROLLING_WINDOW_SEC = 600
 ROLLING_STEP_SEC = 60
 HOT_WINDOW_SEC = 1200
+MIN_CI_N = 5  # duels needed before a win-rate interval is shown
+MIN_RATE_WINDOW_SEC = 300  # per-10' rates are hidden for shorter windows
+TRAJECTORY_MIN = (5, 10, 20)  # swap-impact checkpoints after the change
 HOT_BEATEN = 6  # beaten >= 6 in the last 20 min ...
 HOT_WIN_PCT = 0.30  # ... or defender win rate <= 30% ...
 HOT_MIN_N = 8  # ... over at least 8 duels
+BOX_X = 83.0  # end x beyond this (attacker frame) counts as a box entry
 CHANNEL_Y = 67.0  # wide channel: start_y > 67 (or < 33) in the attacker's frame
 
 _WINS: frozenset[str] = frozenset({"won", "recovered"})
@@ -230,8 +235,23 @@ def _duels(
     return out
 
 
-def _confidence(n: int) -> Confidence:
-    return "low" if n < 4 else "medium" if n < 10 else "high"
+def wilson(won: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95% Wilson score interval for a win rate; None below MIN_CI_N duels."""
+    if n < MIN_CI_N:
+        return None
+    p = won / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z / (1 + z * z / n) * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return round(max(0.0, centre - half), 3), round(min(1.0, centre + half), 3)
+
+
+def _confidence(won: int, n: int) -> Confidence:
+    """Bands by interval width, not n alone (C4): high only when the 95% half-width <= 0.12."""
+    ci = wilson(won, n)
+    if ci is None:
+        return "low"
+    half = (ci[1] - ci[0]) / 2
+    return "low" if half > 0.25 else "medium" if half > 0.12 else "high"
 
 
 def _win_pct(duels: list[_Duel]) -> float | None:
@@ -301,10 +321,17 @@ def duel_ledger(
             channel_poss.setdefault(e.possession_id, e.event_id)
 
     att_team = team_of.get(attacker_id)
-    shots = [
+    in_window = [
         e for e in events
-        if e.event_sec <= asof and e.event_type == "shot" and e.team_id == att_team
+        if since <= e.event_sec <= asof and e.team_id == att_team
         and e.possession_id in channel_poss
+    ]  # fmt: skip
+    shots = [e for e in in_window if e.event_type == "shot"]
+    # completed crosses, or passes/carries ending in the box, from the channel's possessions
+    entries = [
+        e for e in in_window
+        if e.outcome == "success" and e.event_type in ("pass", "carry")
+        and (e.qualifiers.get("cross") or (e.end_x or 0) > BOX_X)
     ]  # fmt: skip
 
     rolling: list[RollingPoint] = []
@@ -314,6 +341,8 @@ def duel_ledger(
         rolling.append(RollingPoint(sec=sec, win_pct=_win_pct(win), n=len(win)))
 
     outcomes = [d.point.outcome for d in duels]
+    won = sum(o in _WINS for o in outcomes)
+    ci = wilson(won, len(duels))
     window_sec = asof - since + 1
     beaten = sum(d.beaten for d in duels)
     evidence = [i for d in duels for i in d.evidence]
@@ -322,22 +351,40 @@ def duel_ledger(
         attacker_id=attacker_id,
         defender_ids=defender_ids,
         duels=len(duels),
-        won=sum(o in _WINS for o in outcomes),
+        won=won,
         lost=outcomes.count("lost"),
         recoveries=outcomes.count("recovered"),
         fouls=outcomes.count("foul"),
         win_pct=_win_pct(duels),
+        win_ci=list(ci) if ci else None,
         window_sec=window_sec,
         beaten=beaten,
-        beaten_per_10=round(beaten * 600 / window_sec, 2) if window_sec > 0 else None,
+        beaten_per_10=(
+            round(beaten * 600 / window_sec, 2) if window_sec >= MIN_RATE_WINDOW_SEC else None
+        ),
         channel_shots=len(shots),
+        channel_entries=len(entries),
         channel_xg=round(sum(float(e.qualifiers.get("xg", 0)) for e in shots), 3),
         defender_rating_swing=round(sum(d.rating_delta for d in duels), 3) if duels else None,
-        confidence=_confidence(len(duels)),
+        confidence=_confidence(won, len(duels)),
         points=[d.point for d in duels],
         rolling=rolling,
         evidence_event_ids=_unique(evidence),
     )
+
+
+def records_vs(
+    events: list[MatchEvent], rosters: list[RosterEntry], team_id: str, attacker_id: str, asof: int
+) -> dict[str, tuple[int, int]]:
+    """defender -> (duels won, duels) against ``attacker_id`` up to ``asof``, in one pass.
+    Same counting as ``duel_ledger(..., defender_id, ...)``."""
+    out: dict[str, tuple[int, int]] = {}
+    for d in _duels(events, rosters, team_id, asof):
+        if d.point.attacker_id != attacker_id:
+            continue
+        won, n = out.get(d.point.defender_id, (0, 0))
+        out[d.point.defender_id] = (won + (d.point.outcome in _WINS), n + 1)
+    return out
 
 
 def _occupants(
@@ -397,10 +444,16 @@ def hot_duels(
         s: p for p, s in current_slots(rosters, events, asof).items() if team_of.get(p) == team_id
     }
     out: list[HotDuel] = []
-    for (slot, att), duels in groups.items():
-        beaten, n, pct, fires = _hot_stats(duels, asof)
-        if not fires or slot not in holders:
+    on_pitch = current_slots(rosters, events, asof)
+    for (slot, att), slot_duels in groups.items():
+        if slot not in holders or att not in on_pitch:  # nobody to defend, or nobody to stop
             continue
+        # the trigger is about the man in the slot now: his own duels only (C1)
+        duels = [d for d in slot_duels if d.point.defender_id == holders[slot]]
+        beaten, n, pct, fires = _hot_stats(duels, asof)
+        if not fires:
+            continue
+        s_beaten, s_n, s_pct, _ = _hot_stats(slot_duels, asof)
         # The window state only changes when a duel enters (its second) or leaves
         # (second + 1200); asof itself fires, so the scan always finds a second.
         candidates = sorted(
@@ -419,6 +472,9 @@ def hot_duels(
                 win_pct_20m=pct,
                 n_20m=n,
                 first_fired_sec=first,
+                slot_beaten_20m=s_beaten,
+                slot_n_20m=s_n,
+                slot_win_pct_20m=s_pct,
             )
         )
     out.sort(key=lambda h: (-h.beaten_20m, h.win_pct_20m or 0.0, h.defender_slot))
@@ -460,7 +516,8 @@ def hot_pair(
     first_fired_sec: int | None,
 ) -> HotDuel | None:
     """Current 20-minute stats for one (slot, attacker) pair, firing or not: keeps an alert
-    that has fired once (``first_fired_sec``) tracked as the slot changes hands. None when
+    that has fired once (``first_fired_sec``) tracked as the slot changes hands. The main
+    fields are the current holder's own record; ``slot_*`` cover every holder. None when
     nobody holds the slot any more."""
     team_of = {r.player_id: r.team_id for r in rosters}
     holder = next(
@@ -470,14 +527,16 @@ def hot_pair(
     )  # fmt: skip
     if holder is None:
         return None
-    duels = [
+    slot_duels = [
         d for d in _duels(events, rosters, team_id, asof)
         if d.slot == slot and d.point.attacker_id == attacker_id
     ]  # fmt: skip
-    beaten, n, pct, _ = _hot_stats(duels, asof)
+    beaten, n, pct, _ = _hot_stats([d for d in slot_duels if d.point.defender_id == holder], asof)
+    s_beaten, s_n, s_pct, _ = _hot_stats(slot_duels, asof)
     return HotDuel(
         team_id=team_id, defender_id=holder, defender_slot=slot, attacker_id=attacker_id,
         beaten_20m=beaten, win_pct_20m=pct, n_20m=n, first_fired_sec=first_fired_sec,
+        slot_beaten_20m=s_beaten, slot_n_20m=s_n, slot_win_pct_20m=s_pct,
     )  # fmt: skip
 
 
@@ -509,4 +568,15 @@ def swap_impact(
         asof=max(swap_sec - 1, 0), since=max(swap_sec - HOT_WINDOW_SEC, 0),
     )  # fmt: skip
     after = duel_ledger(events, attacker_id, slot, team_id, rosters, asof=asof, since=swap_sec)
-    return SwapImpact(swap_sec=swap_sec, before=before, after=after)
+    trajectory = []
+    for minutes in TRAJECTORY_MIN:
+        end = swap_sec + minutes * 60 - 1
+        if end > asof:
+            break
+        led = duel_ledger(events, attacker_id, slot, team_id, rosters, asof=end, since=swap_sec)
+        trajectory.append(ImpactPoint(minutes=minutes, n=led.duels, win_pct=led.win_pct,
+                                      beaten_per_10=led.beaten_per_10))  # fmt: skip
+    b, a = before.win_ci, after.win_ci
+    separated = b is not None and a is not None and (b[1] < a[0] or a[1] < b[0])
+    return SwapImpact(swap_sec=swap_sec, before=before, after=after, win_separated=separated,
+                      trajectory=trajectory)  # fmt: skip

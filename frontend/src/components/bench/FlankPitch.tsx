@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { PitchMarkings } from "@/components/PitchMarkings";
 import { PITCH_H, PITCH_W, clockLabel, toSvg } from "@/lib/pitch";
-import type { DuelLedger, DuelPoint } from "@/lib/types";
+import type { DuelLedger, DuelPoint, FlankThreat } from "@/lib/types";
 
 type Filter = "all" | "before" | "after";
 const ZONES = 6; // heat columns along the flank (attacker-frame x 40..100)
@@ -18,8 +18,9 @@ const isLoss = (p: DuelPoint) => p.outcome === "lost" || p.outcome === "foul";
  * frame (the away side attacks right-to-left here), sized by the stored p_beat term. Labels
  * and the detail card live in a flat overlay, never in the tilted plane.
  */
-export function FlankPitch({ ledger, swapSec, highlight, onHighlight, name }: {
+export function FlankPitch({ ledger, threat, swapSec, highlight, onHighlight, name }: {
   ledger: DuelLedger | null;
+  threat: FlankThreat | null;
   swapSec: number | null;
   highlight: string[];
   onHighlight: (ids: string[]) => void;
@@ -91,7 +92,13 @@ export function FlankPitch({ ledger, swapSec, highlight, onHighlight, name }: {
         </motion.div>
       </div>
 
-      <div className="relative z-10 mt-2 flex flex-wrap items-start gap-3 text-[11px] text-[var(--muted)]">
+      {threat && (
+        <p className={`relative z-10 mt-2 text-[11px] ${threat.threatening ? "text-[var(--fg-soft)]" : "text-[var(--muted)]"}`}>
+          Threat from this flank, last 20&apos;: {threat.shots} shot(s) · xG {threat.xg.toFixed(2)} · {threat.entries} cross(es)/box entries
+          {threat.shots === 0 && " · no shots conceded from this flank yet"}
+        </p>
+      )}
+      <div className="relative z-10 flex flex-wrap items-start gap-3 text-[11px] text-[var(--muted)]">
         <span><span className="text-[var(--win)]">●</span> defender won / recovered</span>
         <span><span className="text-[var(--loss)]">●</span> beaten / fouled</span>
         <span>size = model p_beat · columns = losses per zone</span>

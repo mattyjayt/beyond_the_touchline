@@ -10,6 +10,8 @@ shrunk towards what has been observed. Everything is simulated.
 from dataclasses import dataclass
 from itertools import product
 
+from scipy.stats import beta as beta_dist
+
 from app.models import (
     ROLE_GROUP,
     DuelLedger,
@@ -21,7 +23,13 @@ from app.models import (
     Recommendation,
     RosterEntry,
 )
-from app.services.matchups import HOT_WINDOW_SEC, current_slots, duel_ledger, hot_duels
+from app.services.matchups import (
+    HOT_WINDOW_SEC,
+    current_slots,
+    duel_ledger,
+    hot_duels,
+    records_vs,
+)
 from app.services.performance import (
     is_out_of_position,
     live_rating,
@@ -31,15 +39,20 @@ from app.services.performance import (
 )
 from app.services.race import race
 from app.sim.duel import DuelContext, duel_prob
+from app.sim.engine import TRANSITION_ARCHETYPES
 from app.store import Store
 
 ADVISOR_VERSION = "advisor-v1"
 POLICY_WEIGHTS = {"L": 0.15, "F": 0.15, "M": 0.35, "A": 0.1, "G": 0.1, "R": 0.15}
 SHRINK_K = 6  # pseudo-duels of model prior when blending with the observed rate
 M_SCALE = 0.3  # a 30-point gain in duel win rate saturates M
+# a swap keeps an out-of-form holder on the pitch (he only leaves the duel): half the form credit
+SWAP_FORM_SHARE = 0.5
+DISRUPTION_PER_PLAYER = 0.05  # score cost per player moved beyond a single sub or swap
+TIE_BAND = 0.03  # options this close in score are shown as tied
 MAX_SUBS = 5
 MAX_OPTIONS = 4  # besides KEEP
-RACE_GAP_S = 0.03  # smaller 0-5 m gaps are reported as level, not as an edge
+RACE_GAP_M = 0.15  # smaller gaps at 1 s are reported as level, not as an acceleration edge
 _GROUP_STEP = {"DEF": 0, "MID": 1, "ATT": 2}
 _ATTACK_W = {"GK": 0.0, "DEF": 0.4, "MID": 0.7, "ATT": 1.0}  # attacking weight of a slot
 _CONTEXT_GRID = list(product((True, False), (True, False)))  # isolated x transition
@@ -67,6 +80,7 @@ class AdvisorInput:
     match_id: str
     minutes_on: dict[str, float]  # minutes on the pitch (bench = 0), incl. the tormentor
     observed: dict[str, tuple[int, int]]  # player -> (duels won, duels) vs the tormentor
+    tormentor_booked: bool = False
 
 
 # ------------------------------------------------------------------ helpers
@@ -105,8 +119,9 @@ def _band(n: int, cuts: tuple[int, int]) -> int:
 _BANDS = ("low", "medium", "high")
 
 
-def t5m(p: Player) -> float:
-    return race([p]).curves[0].t5m
+def d1s(p: Player) -> float:
+    """Metres covered 1 s after the reaction time starts (sprint race model)."""
+    return race([p]).curves[0].d1s
 
 
 @dataclass
@@ -116,6 +131,7 @@ class _Option:
     new_def: str  # who holds the hot slot afterwards
     vacated_fit: float | None  # fit in the slot left by the swap partner, if any
     subs: int
+    abs_fit: float = 0.0  # min(fit of the new hot-slot player, fit in the vacated slot)
 
 
 class _Scorer:
@@ -126,13 +142,15 @@ class _Scorer:
         self._proj: dict[str, float] = {}
 
     def projected(self, pid: str) -> float:
-        """1 - mean p_beat of the tormentor vs ``pid`` over a fixed context grid."""
+        """1 - mean p_beat of the tormentor vs ``pid`` over a fixed context grid. As in the
+        engine, the transition term only applies to attacking/inverted full-backs (C3)."""
         if pid not in self._proj:
             inp, d = self.inp, self.inp.players[pid]
             vals = [
                 duel_prob(
                     inp.tormentor, d,
-                    DuelContext(iso, tr, pid in inp.yellows, False, _TOUCH,
+                    DuelContext(iso, tr and d.archetype in TRANSITION_ARCHETYPES,
+                                pid in inp.yellows, False, _TOUCH,
                                 inp.minutes_on.get(inp.tormentor.player_id, 0.0),
                                 inp.minutes_on.get(pid, 0.0)),
                     d.physical.stance_idx / 100,
@@ -147,15 +165,18 @@ class _Scorer:
         return (won + SHRINK_K * self.projected(pid)) / (n + SHRINK_K)
 
     def current(self) -> float:
-        w = self.inp.hot.win_pct_20m
-        return w if w is not None else self.shrunk(self.old_def)
+        """The holder's blended estimate: same model + shrinkage as every candidate (C2)."""
+        return self.shrunk(self.old_def)
 
     def dims(self, o: _Option) -> tuple[OptionDims, float]:
         inp, P = self.inp, self.inp.players
         new, old = P[o.new_def], P[self.old_def]
         exp, live = inp.expected.get(self.old_def), inp.live.get(self.old_def)
-        L = _clamp(exp - live) if exp is not None and live is not None else 0.0
-        F = min(fit(new, self.slot), o.vacated_fit if o.vacated_fit is not None else 1.0)
+        # every dimension is a change against KEEP (C2): KEEP itself scores 0 on all six
+        form_gap = _clamp(exp - live) if exp is not None and live is not None else 0.0
+        L = form_gap * (SWAP_FORM_SHARE if o.kind == "position_swap" else 1.0)
+        o.abs_fit = min(fit(new, self.slot), o.vacated_fit if o.vacated_fit is not None else 1.0)
+        F = o.abs_fit - fit(old, self.slot)
         M = _clamp((self.shrunk(o.new_def) - self.current()) / M_SCALE)
         # attacking change of every slot the option touches, weighted by the slot's role
         before = {s: p for p, s in inp.slots.items()}
@@ -187,7 +208,16 @@ class _Scorer:
         R = _clamp(-risk)
         dims = OptionDims(**{k: round(v, 3) for k, v in zip("LFMAGR", (L, F, M, A, G, R))})
         score = sum(POLICY_WEIGHTS[k] * getattr(dims, k) for k in POLICY_WEIGHTS)
+        score -= DISRUPTION_PER_PLAYER * max(0, len(o.moves) - 2)  # beyond one sub or swap
         return dims, round(score, 4)
+
+    def band(self, pid: str) -> tuple[float, float, float]:
+        """Blended estimate and its 90% Beta interval (model prior worth SHRINK_K duels)."""
+        won, n = self.inp.observed.get(pid, (0, 0))
+        p = self.projected(pid)
+        a, b = won + SHRINK_K * p, (n - won) + SHRINK_K * (1 - p)
+        lo, hi = beta_dist.ppf([0.05, 0.95], a, b)
+        return round(a / (a + b), 3), round(float(lo), 3), round(float(hi), 3)
 
     def confidence(self, new_def: str, f: float) -> str:
         n_slot = self.inp.history_n_at_slot.get((new_def, self.slot), 0)
@@ -248,16 +278,20 @@ def _pros_cons(inp: AdvisorInput, sc: _Scorer, o: _Option) -> tuple[list[str], l
     new, old, torm = P[o.new_def], P[sc.old_def], inp.tormentor
     pros = [
         (
-            f"Projected duel win vs {torm.display_name}: {_pct(sc.projected(o.new_def))} "
-            f"vs {_pct(sc.current())} now (simulated)"
+            f"Projected duel win vs {torm.display_name}: {_pct(sc.shrunk(o.new_def))} vs "
+            f"{_pct(sc.current())} for {old.display_name} (model + observed, simulated)"
         )
     ]
     cons: list[str] = []
-    tn, to = t5m(new), t5m(old)
-    race_txt = f"{old.display_name}: {tn:.2f} s vs {to:.2f} s to 5 m (simulated)"
-    if to - tn >= RACE_GAP_S:
+    # acceleration in real units, judged on the sprint race's gap at 1 s (C6)
+    dn, do = d1s(new), d1s(old)
+    race_txt = (
+        f"{old.display_name}: {dn:.2f} vs {do:.2f} m after 1 s "
+        f"(max accel {new.physical.accel_ms2:.2f} vs {old.physical.accel_ms2:.2f} m/s², simulated)"
+    )
+    if dn - do >= RACE_GAP_M:
         pros.append(f"Out-accelerates {race_txt}")
-    elif tn - to >= RACE_GAP_S:
+    elif do - dn >= RACE_GAP_M:
         cons.append(f"Slower off the mark than {race_txt}")
     else:
         pros.append(f"Level off the mark with {race_txt}")
@@ -328,16 +362,42 @@ def projected_win(inp: AdvisorInput, player_id: str) -> float:
     return _Scorer(inp).projected(player_id)
 
 
-def keep_only(match_id: str, team_id: str, asof: int) -> Recommendation:
-    """The lone KEEP option shown while no duel is being lost."""
+def keep_only(
+    match_id: str,
+    team_id: str,
+    asof: int,
+    pros: list[str] | None = None,
+    cons: list[str] | None = None,
+) -> Recommendation:
+    """The lone KEEP option: no duel is being lost, or a new holder has no record yet."""
     return Recommendation(
         rec_id=f"REC-{match_id}-{asof}-1", match_id=match_id, team_id=team_id, asof_sec=asof,
         option_rank=1, option_type="keep", attack_delta_estimate=0, control_delta_estimate=0,
         defensive_risk_delta=0, tactical_fit_score=1.0, confidence="low",
-        pros=["No individual duel is being lost: no trigger fired"],
-        cons=["Nothing specific to fix yet"], model_version=ADVISOR_VERSION,
+        pros=pros or ["No individual duel is being lost: no trigger fired"],
+        cons=cons or ["Nothing specific to fix yet"], model_version=ADVISOR_VERSION,
         dims=OptionDims(L=0, F=0, M=0, A=0, G=0, R=0), score=0.0,
     )  # fmt: skip
+
+
+def _shortlist(scored: list, inp: AdvisorInput) -> list:
+    """Best option of each type and the best natural-position sub are always shown (a coach
+    should see every kind of fix, ranked honestly); the rest fill by score up to MAX_OPTIONS.
+    ``scored`` is sorted best first."""
+    slot_pos = slot_position(inp.hot.defender_slot)
+    keep: list = []
+    for kind in ("substitution", "position_swap", "sub_and_swap"):
+        keep += [next((t for t in scored if t[1].kind == kind), None)]
+    keep += [next((t for t in scored if t[1].kind == "substitution"
+                   and inp.players[t[1].new_def].primary_position == slot_pos), None)]  # fmt: skip
+    picked = [t for t in scored if any(t is k for k in keep)]
+    for t in scored:
+        if len(picked) >= MAX_OPTIONS:
+            break
+        if not any(t is p for p in picked):
+            picked.append(t)
+    picked.sort(key=lambda t: (-t[0], t[1].kind, t[1].new_def))
+    return picked
 
 
 def evaluate(inp: AdvisorInput) -> list[Recommendation]:
@@ -350,7 +410,7 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
         dims, score = sc.dims(o)
         scored.append((score, o, dims))
     scored.sort(key=lambda t: (-t[0], t[1].kind, t[1].new_def))
-    scored = scored[:MAX_OPTIONS]
+    scored = _shortlist(scored, inp)
 
     keep_dims = OptionDims(L=0, F=0, M=0, A=0, G=0, R=0)
     rows = [(0.0, None, keep_dims)] + scored
@@ -366,7 +426,10 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
         }  # fmt: skip
         if o is None:
             won, n = inp.observed.get(old, (0, 0))
-            pros = [f"Keeps the shape and all {inp.subs_left} substitution(s)"]
+            pros = [
+                f"Keeps the shape and all {inp.subs_left} substitution(s)",
+                f"Could ask a team-mate to double up on {torm}: not modelled (no off-ball data)",
+            ]
             cons = [
                 (
                     f"{P[old].display_name} beaten {inp.hot.beaten_20m} times by {torm} in the last "
@@ -379,7 +442,7 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
                 **common, option_type="keep", attack_delta_estimate=0, control_delta_estimate=0,
                 defensive_risk_delta=0, tactical_fit_score=fit(P[old], slot),
                 confidence=sc.confidence(old, fit(P[old], slot)), pros=pros, cons=cons,
-                projected_win_pct=sc.projected(old),
+                projected_win_pct=sc.projected(old), **_blend(sc, old),
                 observed_win_pct=round(won / n, 3) if n else None, n_observed=n,
             ))  # fmt: skip
             continue
@@ -393,18 +456,39 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
             **common, option_type=o.kind, outgoing_player_id=old, incoming_player_id=o.new_def,
             moves=o.moves, attack_delta_estimate=dims.A,
             control_delta_estimate=round((new.priors.passing - P[old].priors.passing) / 100, 3),
-            defensive_risk_delta=round(-dims.R, 3), tactical_fit_score=max(0.0, dims.F),
-            confidence=sc.confidence(o.new_def, dims.F), pros=pros, cons=cons,
-            projected_win_pct=sc.projected(o.new_def),
+            defensive_risk_delta=round(-dims.R, 3), tactical_fit_score=o.abs_fit,
+            confidence=sc.confidence(o.new_def, o.abs_fit), pros=pros, cons=cons,
+            projected_win_pct=sc.projected(o.new_def), **_blend(sc, o.new_def),
             observed_win_pct=round(won / n, 3) if n else None, n_observed=n,
             out_of_position=oop,
         ))  # fmt: skip
+    for i, r in enumerate(recs):  # near-ties are flagged, not presented as a strict order
+        nbrs = [recs[j].score for j in (i - 1, i + 1) if 0 <= j < len(recs)]
+        r.tied = any(abs((r.score or 0) - (n or 0)) <= TIE_BAND for n in nbrs)
     return recs
 
 
+def _blend(sc: _Scorer, pid: str) -> dict:
+    est, lo, hi = sc.band(pid)
+    return {"blended_win_pct": est, "blended_ci": [lo, hi]}
+
+
 # --------------------------------------------------------------- edge (I/O)
+def store_cache(store: Store) -> dict:
+    """Per-store memo for results that depend only on static data (historical matches)."""
+    return store.__dict__.setdefault("_advisor_cache", {})
+
+
 def player_history(store: Store, player_id: str, lookback: int = 5) -> list[dict]:
     """Last ``lookback`` prior simulated matches the player played in (no current match)."""
+    key = ("history", player_id, lookback)
+    cache = store_cache(store)
+    if key not in cache:
+        cache[key] = _player_history(store, player_id, lookback)
+    return cache[key]
+
+
+def _player_history(store: Store, player_id: str, lookback: int) -> list[dict]:
     player = store.players[player_id]
     out = []
     for m in sorted(store.matches.values(), key=lambda m: m.kickoff_at, reverse=True):
@@ -428,6 +512,14 @@ def player_history(store: Store, player_id: str, lookback: int = 5) -> list[dict
 
 
 def _slot_counts(store: Store, player_id: str) -> dict[str, int]:
+    key = ("slots", player_id)
+    cache = store_cache(store)
+    if key not in cache:
+        cache[key] = _count_slots(store, player_id)
+    return cache[key]
+
+
+def _count_slots(store: Store, player_id: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for m in store.matches.values():
         if m.kind != "historical":
@@ -481,10 +573,8 @@ def advisor_input(
         expected[p] = round(sum(x["rating"] for x in hist) / len(hist), 2) if hist else None
         for s, n in _slot_counts(store, p).items():
             n_at[(p, s)] = n
-    observed = {}
-    for p in [*slots, *bench]:
-        led = duel_ledger(events, h.attacker_id, p, team_id, rosters, asof)
-        observed[p] = (led.won, led.duels)
+    records = records_vs(events, rosters, team_id, h.attacker_id, asof)
+    observed = {p: records.get(p, (0, 0)) for p in [*slots, *bench]}
     home = team_id == match.home_team_id
     goals = {
         t: sum(
@@ -506,6 +596,9 @@ def advisor_input(
         subs_left=MAX_SUBS - _subs_made(events, team_id, asof), yellows=yellows,
         tormentor=players[h.attacker_id], asof=asof, match_id=match_id,
         minutes_on=minutes_on, observed=observed,
+        tormentor_booked=any(
+            e.event_type == "card" and e.player_id == h.attacker_id for e in events
+        ),
     )  # fmt: skip
 
 
@@ -521,4 +614,5 @@ __all__ = [
     "option_label",
     "player_history",
     "projected_win",
+    "store_cache",
 ]

@@ -33,7 +33,7 @@ export const DIM_LABELS: Record<string, string> = {
   F: "Fit",
   M: "Duel win",
   A: "Attack",
-  G: "Game state",
+  G: "Game state*",
   R: "Risk",
 };
 
@@ -49,14 +49,12 @@ export const AXIS_LABELS: Record<RadarAxis, string> = {
 
 /** Radar axis -> the study variables that measure it (links the radar and importance panels). */
 export const AXIS_VARS: Record<RadarAxis, string[]> = {
-  pace: ["phy.def_top_speed_kmh", "phy.att_top_speed_kmh", "phy.speed_kmh_diff"],
-  acceleration: ["duel.burst", "phy.accel_idx_diff", "phy.def_accel_ms2", "phy.att_accel_ms2",
-    "phy.def_time_0_5m_s", "phy.att_time_0_5m_s"],
-  agility: ["duel.agil", "phy.agility_idx_diff", "phy.def_agility_idx", "phy.att_agility_idx"],
-  stamina: ["phy.def_stamina_idx", "phy.att_stamina_idx", "ctx.def_fatigue_mult",
-    "ctx.att_fatigue_mult", "ctx.def_minutes_on", "ctx.att_minutes_on"],
-  defending: ["pri.def_defending", "duel.tech", "pri.tech_gap"],
-  stance: ["phy.def_stance_idx", "ctx.stance_draw", "duel.ctx"],
+  pace: ["group.pace"],
+  acceleration: ["group.acceleration"],
+  agility: ["group.agility"],
+  stamina: ["group.stamina"],
+  defending: ["group.technique"],
+  stance: ["group.stance"],
   duel_win: [],
 };
 

@@ -5,33 +5,46 @@ import { askBriefing, type AgentAnswer } from "@/lib/api";
 
 const EVIDENCE = /\[?(SIM-[A-Z0-9]+-E\d{4})\]?/g;
 
+const DEBOUNCE_MS = 800;
+
 /**
  * 3-4 sentence briefing from Claude (or the rules fallback), with clickable evidence chips.
- * Refetches only when the alert first fires or the coach's chosen option changes - never on
- * every clock tick.
+ * It describes the second the page shows (`asofSec`, null = live) and the coach's choice.
+ * Live, it refetches only when the alert, the swap or the choice changes (`liveKey`), never on
+ * every clock tick; scrubbed, it follows the page's second, debounced.
  */
-export function CoachBriefing({ matchId, teamId, alertSec, chosen, onEvidence }: {
+export function CoachBriefing({ matchId, teamId, alertSec, asofSec, liveKey, chosen, onEvidence }: {
   matchId: string;
   teamId: string;
   alertSec: number | null;
+  asofSec: number | null;
+  liveKey: string;
   chosen: string | null;
   onEvidence: (ids: string[]) => void;
 }) {
   const [answer, setAnswer] = useState<AgentAnswer | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const loading = alertSec != null && !answer && !failed;
+  const [pending, setPending] = useState(false);
+  const loading = alertSec != null && (pending || (!answer && !failed));
+  const trigger = asofSec === null ? liveKey : `at-${asofSec}`;
 
   useEffect(() => {
     if (alertSec == null) return;
     let live = true;
-    askBriefing(matchId, teamId)
-      .then((a) => live && (setAnswer(a), setFailed(null)))
-      .catch((e) => live && setFailed(String(e)));
+    const timer = setTimeout(() => {
+      setPending(true);
+      askBriefing(matchId, teamId, asofSec, chosen)
+        .then((a) => live && (setAnswer(a), setFailed(null)))
+        .catch((e) => live && setFailed(String(e)))
+        .finally(() => live && setPending(false));
+    }, asofSec === null ? 0 : DEBOUNCE_MS);
     return () => {
       live = false;
-      setAnswer(null);
+      clearTimeout(timer);
     };
-  }, [matchId, teamId, alertSec, chosen]);
+    // asofSec only matters through `trigger` (live mode must not refetch every tick)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId, teamId, alertSec, trigger, chosen]);
 
   const provider = answer?.provider.startsWith("claude") ? "claude" : "rules";
   return (
@@ -46,7 +59,7 @@ export function CoachBriefing({ matchId, teamId, alertSec, chosen, onEvidence }:
       </div>
       {alertSec == null ? (
         <p className="text-sm text-[var(--muted)]">No defender is being beaten repeatedly yet. The briefing appears when the hot-duel alert fires.</p>
-      ) : loading ? (
+      ) : loading && !answer ? (
         <p className="animate-pulse text-sm text-[var(--muted)]">Preparing the briefing…</p>
       ) : failed ? (
         <p className="text-sm text-[var(--loss)]">Briefing unavailable: {failed}</p>

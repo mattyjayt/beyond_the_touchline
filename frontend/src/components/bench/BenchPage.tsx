@@ -68,8 +68,10 @@ function BenchBody({ detail }: { detail: MatchDetail }) {
       ) : (
         <>
           <CoachBriefing matchId={match.match_id} teamId={match.home_team_id}
-            alertSec={view.alert?.first_fired_sec ?? null} chosen={b.chosen} onEvidence={setHighlight} />
-          <FlankPitch ledger={view.ledger} swapSec={view.impact?.swap_sec ?? null} highlight={highlight}
+            alertSec={view.alert?.first_fired_sec ?? null} asofSec={b.asof === null ? null : view.asof_sec}
+            liveKey={`${view.alert?.first_fired_sec ?? "-"}|${view.impact?.swap_sec ?? "-"}|${view.alert_state}`}
+            chosen={b.chosen} onEvidence={setHighlight} />
+          <FlankPitch ledger={view.ledger} threat={view.threat} swapSec={view.impact?.swap_sec ?? null} highlight={highlight}
             onHighlight={setHighlight} name={name} />
           <DuelWinRate ledger={view.ledger} alertSec={view.alert?.first_fired_sec ?? null}
             swapSec={view.impact?.swap_sec ?? null} onSeek={b.setAsof} />

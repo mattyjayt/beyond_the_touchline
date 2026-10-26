@@ -74,6 +74,9 @@ class Recommendation(BaseModel):
     projected_win_pct: float | None = None  # hot-slot defender vs the tormentor, duel model
     observed_win_pct: float | None = None  # same pairing, this match so far
     n_observed: int = 0
+    blended_win_pct: float | None = None  # model prior (k=6 duels) + observed record
+    blended_ci: list[float] | None = None  # 90% Beta interval on the blended estimate
+    tied: bool = False  # within TIE_BAND of a neighbouring option's score
     out_of_position: bool = False
     model_version: str
     synthetic: Literal[True] = True

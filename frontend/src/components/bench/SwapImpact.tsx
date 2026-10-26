@@ -9,10 +9,14 @@ interface Row {
   before: number | null;
   after: number | null;
   fmt: (v: number | null) => string;
-  better: "higher" | "lower";
+  note?: (l: DuelLedger) => string;
 }
 
-/** Before vs after the real position_change, from backend ledgers (20' before vs since). */
+/**
+ * Before (20' ahead of the change) vs since the real position_change, all from backend ledgers.
+ * Rates are shown with their uncertainty; a direction is only drawn when the backend says the
+ * win-rate intervals separate.
+ */
 export function SwapImpact({ impact, executedRank, name }: {
   impact: Impact | null;
   executedRank: number | null;
@@ -28,13 +32,15 @@ export function SwapImpact({ impact, executedRank, name }: {
     );
   }
   const { before: b, after: a } = impact;
+  const ci = (l: DuelLedger) => (l.win_ci ? `95% ${pct(l.win_ci[0])}–${pct(l.win_ci[1])}` : "n < 5: no interval");
   const rows: Row[] = [
-    { label: "Defender win %", before: b.win_pct, after: a.win_pct, fmt: (v) => pct(v), better: "higher" },
-    { label: "Duels lost / 10'", before: b.beaten_per_10, after: a.beaten_per_10, fmt: num(2), better: "lower" },
-    { label: "Channel shots", before: b.channel_shots, after: a.channel_shots, fmt: num(0), better: "lower" },
-    { label: "Channel xG", before: b.channel_xg, after: a.channel_xg, fmt: num(2), better: "lower" },
+    { label: "Duels lost / 10'", before: b.beaten_per_10, after: a.beaten_per_10, fmt: num(2) },
+    { label: "Channel xG", before: b.channel_xg, after: a.channel_xg, fmt: num(2) },
+    { label: "Channel shots", before: b.channel_shots, after: a.channel_shots, fmt: num(0) },
+    { label: "Defender win %", before: b.win_pct, after: a.win_pct, fmt: (v) => pct(v), note: ci },
   ];
   const who = (l: DuelLedger) => l.defender_ids.map(name).join(", ") || "–";
+  const winUp = (a.win_pct ?? 0) > (b.win_pct ?? 0);
   return (
     <section className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 md:col-span-6">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -48,19 +54,17 @@ export function SwapImpact({ impact, executedRank, name }: {
       <div className="flex flex-col gap-2">
         {rows.map((r) => {
           const max = Math.max(1e-9, r.before ?? 0, r.after ?? 0);
-          const improved = r.before != null && r.after != null &&
-            (r.better === "higher" ? r.after > r.before : r.after < r.before);
           return (
             <div key={r.label} className="grid grid-cols-[110px_1fr] items-center gap-2 text-[11px]">
-              <span className="text-[var(--muted)]">{r.label} {r.before != null && r.after != null && (
-                <span className={improved ? "text-[var(--win)]" : "text-[var(--loss)]"}>{improved ? "▲" : "▼"}</span>)}</span>
+              <span className="text-[var(--muted)]">{r.label}</span>
               <div className="flex flex-col gap-0.5">
                 {(["before", "after"] as const).map((k) => (
                   <div key={k} className="flex items-center gap-2">
                     <motion.span className="h-2 rounded-sm" initial={{ width: 0 }}
-                      animate={{ width: `${((r[k] ?? 0) / max) * 70}%` }}
+                      animate={{ width: `${((r[k] ?? 0) / max) * 60}%` }}
                       style={{ background: k === "before" ? "var(--ghost)" : "var(--us)" }} />
                     <span className="font-mono tabular-nums">{r.fmt(r[k])}</span>
+                    {r.note && <span className="text-[10px] text-[var(--muted)]">{r.note(k === "before" ? b : a)}</span>}
                   </div>
                 ))}
               </div>
@@ -69,13 +73,30 @@ export function SwapImpact({ impact, executedRank, name }: {
         })}
       </div>
       <p className="text-[11px] text-[var(--fg-soft)]">
+        {impact.win_separated
+          ? <>Win rate {winUp ? <span className="text-[var(--win)]">▲ up</span> : <span className="text-[var(--loss)]">▼ down</span>}: the 95% intervals do not overlap.</>
+          : "No clear change in win rate yet: the 95% intervals overlap."}
+      </p>
+      {impact.trajectory.length > 0 && (
+        <table className="w-full text-[11px]">
+          <thead className="text-[var(--muted)]"><tr><th className="text-left font-normal">Since the change</th><th className="font-normal">n</th><th className="font-normal">win %</th><th className="font-normal">lost / 10&apos;</th></tr></thead>
+          <tbody className="font-mono tabular-nums">
+            {impact.trajectory.map((t) => (
+              <tr key={t.minutes}><td>{t.minutes}&apos;</td><td className="text-center">{t.n}</td><td className="text-center">{pct(t.win_pct)}</td><td className="text-center">{num(2)(t.beaten_per_10)}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="text-[11px] text-[var(--fg-soft)]">
         {executedRank === 1
           ? "The swap Liverpool made was the advisor's #1 option at the alert."
           : executedRank != null
             ? `The swap Liverpool made was ranked #${executedRank} by the advisor at the alert, not #1. It is scripted at 70' whatever the advisor says.`
             : "The swap Liverpool made was not among the advisor's options at the alert. It is scripted at 70' whatever the advisor says."}
       </p>
-      <p className="text-[11px] text-[var(--muted)]">Small samples (n above). Outcomes after the swap are unscripted model draws, not causal estimates. Simulated.</p>
+      <p className="text-[11px] text-[var(--muted)]">
+        The before window is the scripted spell the demo seed was chosen for; after the swap, Doku&apos;s volume and his pairing with the RB stay scripted and only outcomes are unscripted. Small samples; not causal. Simulated.
+      </p>
     </section>
   );
 }

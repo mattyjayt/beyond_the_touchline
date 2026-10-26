@@ -178,6 +178,9 @@ export interface Recommendation {
   projected_win_pct: number | null; // hot-slot defender vs the tormentor, duel model
   observed_win_pct: number | null; // same pairing, this match so far
   n_observed: number;
+  blended_win_pct: number | null; // model prior (k=6 duels) + observed record
+  blended_ci: [number, number] | null; // 90% Beta interval on the blended estimate
+  tied: boolean; // within 0.03 of a neighbouring option's score
   out_of_position: boolean;
   model_version: string;
   synthetic: true;
@@ -237,10 +240,12 @@ export interface DuelLedger {
   recoveries: number;
   fouls: number;
   win_pct: number | null;
+  win_ci: [number, number] | null; // 95% Wilson interval; null below 5 duels
   window_sec: number; // asof - since + 1
   beaten: number; // lost without recovery (outright or then fouled)
-  beaten_per_10: number | null; // null when window_sec <= 0
+  beaten_per_10: number | null; // null when the window is under 5 minutes
   channel_shots: number;
+  channel_entries: number; // completed crosses / box entries from the channel
   channel_xg: number;
   defender_rating_swing: number | null;
   confidence: Confidence;
@@ -259,13 +264,26 @@ export interface HotDuel {
   win_pct_20m: number | null;
   n_20m: number;
   first_fired_sec: number | null;
+  // the slot's last 20' across every holder; the fields above are the CURRENT holder's own
+  slot_beaten_20m: number;
+  slot_n_20m: number;
+  slot_win_pct_20m: number | null;
   synthetic: true;
+}
+
+export interface ImpactPoint {
+  minutes: number;
+  n: number;
+  win_pct: number | null;
+  beaten_per_10: number | null;
 }
 
 export interface SwapImpact {
   swap_sec: number;
-  before: DuelLedger;
-  after: DuelLedger;
+  before: DuelLedger; // the 20 minutes before the swap
+  after: DuelLedger; // since the swap
+  win_separated: boolean; // the 95% intervals don't overlap: only then show a direction
+  trajectory: ImpactPoint[]; // after-window at 5, 10, 20 minutes, once reached
   synthetic: true;
 }
 
@@ -294,6 +312,8 @@ export interface ImportanceItem {
   family: string;
   importance: number;
   rank: number;
+  rank_lo: number | null; // best rank across the study's seeds
+  rank_hi: number | null; // worst rank across the study's seeds
 }
 
 export type RadarAxis =
@@ -315,6 +335,14 @@ export interface PlayerCard {
 }
 
 /** GET /api/matches/{id}/bench: the assistant-coach page, clamped to the replay clock. */
+/** What the alerted flank produced in the last 20 minutes. */
+export interface FlankThreat {
+  shots: number;
+  xg: number;
+  entries: number; // completed crosses / box entries
+  threatening: boolean; // >= 1 shot or >= 2 entries
+}
+
 export interface BenchView {
   match_id: string;
   team_id: string;
@@ -323,9 +351,13 @@ export interface BenchView {
   score: Record<string, number>;
   alert: HotDuel | null; // sticky: the first hot duel up to asof, with current stats
   alert_active: boolean; // whether that duel is firing right now
+  // none: no alert yet · active: firing · monitoring: new holder with < 4 own duels (KEEP only)
+  // · cooling: fired earlier, not firing now
+  alert_state: "none" | "active" | "monitoring" | "cooling";
   tormentor: PlayerCard | null;
   defender: PlayerCard | null; // current holder of the alerted slot
   ledger: DuelLedger | null;
+  threat: FlankThreat | null;
   options: Recommendation[];
   cards: Record<string, PlayerCard>;
   race: RaceResult | null;
@@ -334,6 +366,7 @@ export interface BenchView {
   importance: ImportanceItem[];
   importance_note: string; // method, n, AUC and the methodology-demo caveat ("" if no study)
   slots: Record<string, string>; // our on-pitch players -> slot at asof (formation preview)
+  disclosure: string; // what is pinned / scripted in this simulated demo (docs/schema.md §11)
   briefing_seed: string;
   briefing_evidence_ids: string[];
   synthetic: true;

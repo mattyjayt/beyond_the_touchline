@@ -83,8 +83,32 @@ def test_bench_after_swap_has_impact(app_client, seek):
     assert v["alert"]["first_fired_sec"] == ALERT_SEC
     assert v["defender"]["player_id"] == "P-LIV-08"
     # honest comparison with the advisor's ranking at the alert (spec 7.8)
-    assert v["executed_option_rank_at_alert"] is None or v["executed_option_rank_at_alert"] >= 1
+    assert v["executed_option_rank_at_alert"] == 3
     assert v["ledger"]["defender_ids"] == ["P-LIV-30", "P-LIV-08"]
+    # C1: the alert's numbers are Szoboszlai's own, the slot history is separate
+    assert v["alert"]["defender_id"] == "P-LIV-08"
+    assert v["alert"]["slot_n_20m"] >= v["alert"]["n_20m"]
+
+
+@pytest.mark.parametrize("asof", [4200, 4300])
+def test_bench_new_holder_is_monitored_not_blamed(app_client, seek, asof):
+    seek(5400)
+    v = bench(app_client, asof)
+    a = v["alert"]
+    assert a["defender_id"] == "P-LIV-08"
+    own = [
+        p
+        for p in v["ledger"]["points"]
+        if p["defender_id"] == "P-LIV-08" and p["sec"] > asof - 1200
+    ]
+    assert a["n_20m"] == len(own) < 4
+    assert v["alert_state"] == "monitoring"
+    assert [o["option_type"] for o in v["options"]] == ["keep"]
+    # no text pins Frimpong's 20' record (beaten 8, n=14) on Szoboszlai
+    texts = [v["briefing_seed"]] + [c for o in v["options"] for c in o["pros"] + o["cons"]]
+    for sentence in (s for t in texts for s in t.split(". ")):
+        if "Szoboszlai" in sentence:
+            assert "n=14" not in sentence and "beaten 8" not in sentence, sentence
 
 
 def test_bench_unknown_match_404(app_client):
@@ -100,3 +124,81 @@ def test_bench_carries_slots_and_importance_note(app_client, seek):
     assert after["slots"]["P-LIV-08"] == "RB"
     if after["importance"]:
         assert "methodology demo" in after["importance_note"]
+
+
+def test_briefing_names_the_model_drivers(app_client, seek):
+    seek(5400)
+    v = bench(app_client, ALERT_SEC)
+    assert "stance" in v["briefing_seed"] and "transition" in v["briefing_seed"]
+
+
+def test_bench_shows_flank_threat_honestly(app_client, seek):
+    seek(5400)
+    v = bench(app_client, ALERT_SEC)
+    t = v["threat"]
+    assert set(t) >= {"shots", "xg", "entries", "threatening"}
+    assert t["threatening"] == (t["shots"] >= 1 or t["entries"] >= 2)
+    if t["shots"] == 0:
+        assert "no shots conceded from this flank yet" in v["briefing_seed"]
+
+
+# --------------------------------------------------------------- C10: speed
+def test_bench_view_is_fast_when_warm(app_client, seek):
+    import time
+
+    from app.services.bench import build_bench_view
+
+    seek(5400)
+    st, rp = app_client.app.state.store, app_client.app.state.replays
+    build_bench_view(st, rp, MATCH, TEAM, 4800)  # warm the static caches
+    t = time.perf_counter()
+    build_bench_view(st, rp, MATCH, TEAM, 4800)
+    assert (time.perf_counter() - t) * 1000 < 60
+
+
+async def test_bench_tool_does_not_block_the_event_loop(app_client, seek):
+    import asyncio
+
+    from app.agent import tools
+
+    seek(5400)
+    ticks = 0
+
+    async def ticker():
+        nonlocal ticks
+        while True:
+            await asyncio.sleep(0.005)
+            ticks += 1
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)
+    tools.ctx().store.__dict__.pop("_advisor_cache", None)  # force the slow (cold) path
+    await tools.get_bench_view(MATCH, TEAM, 4300)
+    task.cancel()
+    assert ticks >= 3
+
+
+def test_vacant_slot_is_not_described_as_no_alert():
+    from app.services.bench import vacant_text
+
+    text = vacant_text("RB", "Jérémy Doku")
+    assert "RB" in text and "No defender is being beaten" not in text
+
+
+def test_stale_importance_file_is_ignored(tmp_path):
+    import json
+
+    from app.services.bench import load_importance
+
+    f = tmp_path / "imp.json"
+    base = {"method": "m", "n": 1, "auc": 0.7, "caveat": "c",
+            "ranked": [{"var_id": "x", "name": "x", "family": "PHY", "importance": 1.0, "rank": 1}]}  # fmt: skip
+    f.write_text(json.dumps(base | {"model_version": "duel-v0"}))
+    items, note = load_importance(f)
+    assert items == [] and "stale" in note
+
+
+def test_briefing_mentions_a_booked_tormentor(app_client, seek):
+    seek(5400)
+    v = bench(app_client, ALERT_SEC)  # Doku was booked at 846 s
+    assert "Jérémy Doku is on a yellow" in v["briefing_seed"]

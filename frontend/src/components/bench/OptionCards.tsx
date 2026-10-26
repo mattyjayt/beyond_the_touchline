@@ -23,6 +23,7 @@ export function OptionCards({ options, selected, chosen, onSelect, onChoose, nam
       <div className="flex flex-wrap items-baseline gap-2">
         <h2 className="text-sm font-semibold">Options</h2>
         <span className="text-xs text-[var(--muted)]">Ranked by policy score vs KEEP · Policy weights · simulated · not causal</span>
+        <span className="w-full text-[11px] text-[var(--muted)]">* Game state is not independent: it re-weights Attack and Duel win by score and minute.</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {options.map((o) => {
@@ -58,6 +59,7 @@ function OptionCard({ o, isSelected, isChosen, onSelect, onChoose, name }: {
         {o.out_of_position && (
           <span className="rounded-md border border-[var(--warn)] px-1.5 py-0.5 text-[10px] text-[var(--warn)]">Out of position</span>
         )}
+        {o.tied && <span className="rounded-md border border-[var(--line)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]" title="Within 0.03 of a neighbouring option: treat as level">≈ tied</span>}
         <span className="ml-auto font-mono text-xs tabular-nums text-[var(--muted)]">{(o.score ?? 0).toFixed(2)}</span>
       </div>
 
@@ -65,11 +67,17 @@ function OptionCard({ o, isSelected, isChosen, onSelect, onChoose, name }: {
         {isKeep ? <li>Keep the current shape</li> : o.moves.map((m) => <li key={m.player_id}>{moveText(m, name)}</li>)}
       </ul>
 
-      {o.dims && <DimBars dims={o.dims} />}
+      {isKeep ? (
+        <p className="rounded-lg border border-dashed border-[var(--line)] px-2 py-2 text-[11px] text-[var(--muted)]">
+          Baseline: every other option is scored as a change against keeping things as they are.
+        </p>
+      ) : o.dims && <DimBars dims={o.dims} />}
 
-      <div className="grid grid-cols-2 gap-2 text-[11px]">
-        <Stat label="Projected 1v1 win" value={pct(o.projected_win_pct)} note="duel model" />
-        <Stat label="Observed vs tormentor" value={pct(o.observed_win_pct)} note={`n=${o.n_observed}`} />
+      <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+        <Stat label="1v1 win (blended)" value={pct(o.blended_win_pct)}
+          note={o.blended_ci ? `90% ${pct(o.blended_ci[0])}–${pct(o.blended_ci[1])}` : ""} />
+        <Stat label="Model only" value={pct(o.projected_win_pct)} note="duel model" />
+        <Stat label="Observed" value={pct(o.observed_win_pct)} note={`n=${o.n_observed}`} />
       </div>
 
       <ul className="flex flex-col gap-1 text-[11px] leading-snug">
@@ -112,7 +120,8 @@ function Stat({ label, value, note }: { label: string; value: string; note: stri
   return (
     <div className="rounded-lg border border-[var(--line)] px-2 py-1">
       <div className="text-[var(--muted)]">{label}</div>
-      <div className="font-mono text-sm tabular-nums">{value} <span className="text-[10px] text-[var(--muted)]">{note}</span></div>
+      <div className="font-mono text-sm tabular-nums">{value}</div>
+      {note && <div className="text-[10px] text-[var(--muted)]">{note}</div>}
     </div>
   );
 }

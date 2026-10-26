@@ -43,6 +43,8 @@ export function RadarCompare({ tormentor, candidate, current, highlightVar, onHi
               const lit = highlightVar === a;
               return (
                 <g key={a} onMouseEnter={() => onHighlightVar(a)} onMouseLeave={() => onHighlightVar(null)} className="cursor-default">
+                  <title>{[tormentor, candidate, current].filter((c): c is PlayerCard => !!c)
+                    .map((c) => `${c.name}: ${realUnits(c, a)}`).join("\n")}</title>
                   <line x1={C} y1={C} x2={x} y2={y} stroke={lit ? "var(--accent)" : PALETTE.grid} strokeWidth={lit ? 1.5 : 1} />
                   <text x={lx} y={ly + 3} textAnchor="middle" fontSize="10.5" fontWeight={lit ? 700 : 400}
                     fill={lit ? "var(--accent)" : "var(--fg-soft)"}>{AXIS_LABELS[a]}</text>
@@ -70,6 +72,15 @@ export function RadarCompare({ tormentor, candidate, current, highlightVar, onHi
       )}
     </section>
   );
+}
+
+/** The physical quantity behind a 0-100 radar axis, in real units where one exists. */
+function realUnits(c: PlayerCard, axis: RadarAxis): string {
+  const v = c.profile[axis].toFixed(0);
+  if (axis === "pace") return `${c.physical.top_speed_kmh.toFixed(1)} km/h (index ${v})`;
+  if (axis === "acceleration") return `${c.physical.accel_ms2.toFixed(2)} m/s² (index ${v})`;
+  if (axis === "duel_win") return `${v}% projected`;
+  return `index ${v}`;
 }
 
 function Legend({ colour, label, dashed }: { colour: string; label: string; dashed?: boolean }) {

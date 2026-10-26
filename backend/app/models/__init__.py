@@ -3,6 +3,7 @@ from app.models.advisor import (
     DuelOutcome,
     DuelPoint,
     HotDuel,
+    ImpactPoint,
     ImportanceItem,
     Move,
     OptionDims,
@@ -12,7 +13,7 @@ from app.models.advisor import (
     SwapImpact,
 )
 from app.models.analytics import Insight, Rating, RatingContribution, Recommendation
-from app.models.bench import RADAR_AXES, BenchView, PlayerCard
+from app.models.bench import RADAR_AXES, BenchView, FlankThreat, PlayerCard
 from app.models.events import ALLOWED_OUTCOMES, EventType, MatchEvent, Outcome
 from app.models.reference import (
     ROLE_GROUP,
@@ -43,7 +44,9 @@ __all__ = [
     "DuelOutcome",
     "DuelPoint",
     "EventType",
+    "FlankThreat",
     "HotDuel",
+    "ImpactPoint",
     "ImportanceItem",
     "Insight",
     "Match",

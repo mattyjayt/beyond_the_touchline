@@ -19,7 +19,7 @@ export function VariableImportance({ items, note, highlightVar, onHighlightVar }
   return (
     <section className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3">
       <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold">What drives a 1v1 here: variable importance</h2>
+        <h2 className="text-sm font-semibold">What drives a 1v1 here: variable importance (grouped)</h2>
         <p className="text-[11px] text-[var(--warn)]">Methodology demo: importance mirrors the generator; not football truth.</p>
         {note && <p className="text-[11px] text-[var(--muted)]">{note}</p>}
       </div>
@@ -39,8 +39,10 @@ export function VariableImportance({ items, note, highlightVar, onHighlightVar }
           <ol className="grid gap-x-6 gap-y-1 md:grid-cols-2">
             {shown.map((i) => (
               <li key={i.var_id} onMouseEnter={() => onHighlightVar(axisOfVar(i.var_id))} onMouseLeave={() => onHighlightVar(null)}
-                className={`grid grid-cols-[22px_minmax(0,190px)_1fr] items-center gap-2 rounded px-1 text-[11px] ${lit.has(i.var_id) ? "bg-[var(--accent-soft)]" : ""}`}>
-                <span className="font-mono text-[var(--muted)]">{i.rank}</span>
+                className={`grid grid-cols-[52px_minmax(0,220px)_1fr] items-center gap-2 rounded px-1 text-[11px] ${lit.has(i.var_id) ? "bg-[var(--accent-soft)]" : ""}`}>
+                <span className="font-mono text-[var(--muted)]" title="Rank range across the study's seeds">
+                  {i.rank}{i.rank_lo != null && i.rank_hi != null && i.rank_lo !== i.rank_hi ? ` (${i.rank_lo}–${i.rank_hi})` : ""}
+                </span>
                 <span className="truncate" title={`${i.var_id}: ${i.name}`}>{i.name}</span>
                 <span className="flex items-center gap-2">
                   <span className="h-2 rounded-sm" style={{ width: `${(i.importance / max) * 80}%`, background: FAMILY_COLOR[i.family] ?? "var(--muted)" }} />

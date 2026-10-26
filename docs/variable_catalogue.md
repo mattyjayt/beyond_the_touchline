@@ -12,8 +12,8 @@
 | `phy.att_accel_ms2` | PHY | Attacker max acceleration | m/s² | physical_synthetic | profile | yes | yes | #15: Mean 6.40–6.79, max 7.30–7.89; #17: Model feature | report #15, report #17 |
 | `phy.def_accel_ms2` | PHY | Defender max acceleration | m/s² | physical_synthetic | profile | yes | yes | #15: Mean 6.40–6.79, max 7.30–7.89; #18: Differs by outcome | report #15, report #18 |
 | `phy.accel_idx_diff` | PHY | Acceleration index gap (attacker - defender) | index | physical_synthetic | profile | yes | yes | #41: Both players' accelerations differ by outcome; #15: Mean 6.40–6.79, max 7.30–7.89 | report #41, report #15 |
-| `phy.att_time_0_5m_s` | PHY | Attacker time to 5 m | s | physical_synthetic | profile | yes | yes | #23: Protocol shifts ~0.08 s; senior norm not found | report #23 |
-| `phy.def_time_0_5m_s` | PHY | Defender time to 5 m | s | physical_synthetic | profile | yes | yes | #23: Protocol shifts ~0.08 s; senior norm not found | report #23 |
+| `phy.att_time_0_5m_s` | PHY | Attacker time to 5 m (derived from accel) | s | physical_synthetic | profile |  | yes | #23: Protocol shifts ~0.08 s; senior norm not found | report #23 |
+| `phy.def_time_0_5m_s` | PHY | Defender time to 5 m (derived from accel) | s | physical_synthetic | profile |  | yes | #23: Protocol shifts ~0.08 s; senior norm not found | report #23 |
 | `phy.att_agility_idx` | PHY | Attacker agility | index | physical_synthetic | profile | yes |  | #26: Forwards > defenders in youth; #27: <50% shared variance with reactive agility | report #26, report #27 |
 | `phy.def_agility_idx` | PHY | Defender agility | index | physical_synthetic | profile | yes |  | #26: Forwards > defenders in youth; #28: Separates fast from slow defenders | report #26, report #28 |
 | `phy.agility_idx_diff` | PHY | Agility gap (attacker - defender) | index | physical_synthetic | profile | yes |  | #26: Forwards > defenders in youth | report #26 |

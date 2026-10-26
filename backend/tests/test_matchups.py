@@ -13,6 +13,7 @@ from app.services.matchups import (
     current_slots,
     duel_ledger,
     hot_duels,
+    hot_pair,
     matchup_map,
     swap_impact,
 )
@@ -177,7 +178,7 @@ def test_ledger_counts_won_lost_recovered():
     assert led.fouls == 1
     assert led.win_pct == pytest.approx(0.5)
     assert led.defender_ids == [FRIMPONG]
-    assert led.confidence == "medium"
+    assert led.confidence == "low"  # 3 of 6: the 95% interval is +/- 0.31
     assert [p.outcome for p in led.points] == ["lost", "recovered", "lost", "won", "won", "foul"]
     assert led.points[0].terms == TERMS and led.points[-1].terms == {}
     # every point and its linked tackle/foul is cited
@@ -208,7 +209,9 @@ def test_confidence_bands():
             ev.take_on(100 + 10 * i, False)
         return duel_ledger(ev.items, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=5000).confidence
 
-    assert [n_duels(n) for n in (3, 4, 9, 10)] == ["low", "medium", "medium", "high"]
+    # bands follow the 95% Wilson half-width (C4): high needs a tight interval, not just n
+    assert [n_duels(n) for n in (3, 4, 9, 10)] == ["low", "low", "medium", "medium"]
+    assert n_duels(40) == "high"
 
 
 def test_rolling_window_600s():
@@ -444,3 +447,155 @@ def test_swap_impact_after_swap(demo):
     assert imp is not None
     assert imp.before.defender_ids == [FRIMPONG]
     assert imp.after.defender_ids == [SZOBOSZLAI]
+
+
+# ------------------------------------------- C1: stats belong to the current holder
+def _swapped_after_six_beats() -> list[MatchEvent]:
+    ev = Events()
+    for sec in (1000, 1100, 1200, 1300, 1400, 1500):
+        ev.take_on(sec, True)  # Frimpong beaten 6 times at RB
+    ev.add(1600, "position_change", "neutral", "T-LIV", SZOBOSZLAI, recipient_id=FRIMPONG,
+           qualifiers={"from_slot": "RW", "to_slot": "RB"})  # fmt: skip
+    ev.add(1600, "position_change", "neutral", "T-LIV", FRIMPONG, recipient_id=SZOBOSZLAI,
+           qualifiers={"from_slot": "RB", "to_slot": "RW"})  # fmt: skip
+    return ev.items
+
+
+def test_hot_duels_never_label_a_new_holder_with_old_stats():
+    evs = _swapped_after_six_beats()
+    assert hot_duels(evs, ROSTERS, "T-LIV", 1550)[0].defender_id == FRIMPONG
+    assert hot_duels(evs, ROSTERS, "T-LIV", 1700) == []  # Szoboszlai has no duels yet
+
+
+def test_hot_pair_reports_holder_and_slot_history_separately():
+    evs = _swapped_after_six_beats()
+    h = hot_pair(evs, ROSTERS, "T-LIV", "RB", DOKU, 1700, 1500)
+    assert h.defender_id == SZOBOSZLAI
+    assert (h.n_20m, h.beaten_20m, h.win_pct_20m) == (0, 0, None)
+    assert (h.slot_n_20m, h.slot_beaten_20m) == (6, 6)
+    assert h.slot_win_pct_20m == 0.0
+
+
+# ------------------------------------------------------- C4: honest uncertainty
+def test_win_interval_is_wilson_and_needs_five_duels():
+    ev = Events()
+    for i, ok in enumerate([False] * 3 + [True] * 11):  # defender wins 3 of 14
+        ev.take_on(100 + 10 * i, ok)
+    led = duel_ledger(ev.items, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=1000)
+    lo, hi = led.win_ci
+    assert lo == pytest.approx(0.076, abs=0.002) and hi == pytest.approx(0.476, abs=0.002)
+    few = duel_ledger(ev.items, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=130)
+    assert few.duels == 4 and few.win_ci is None
+
+
+def test_rates_hidden_for_windows_under_five_minutes():
+    evs = ledger_events()
+    short = duel_ledger(evs, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=450, since=200)
+    assert short.window_sec == 251 and short.beaten_per_10 is None
+    full = duel_ledger(evs, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=900, since=200)
+    assert full.beaten_per_10 is not None
+
+
+def test_swap_impact_is_honest_about_overlap_and_shows_a_trajectory(swap_match):
+    rosters, events = swap_match
+    imp = swap_impact(events, rosters, "T-LIV", DOKU, "RB", asof=5400)
+    b, a = imp.before.win_ci, imp.after.win_ci
+    separated = b is not None and a is not None and (b[1] < a[0] or a[1] < b[0])
+    assert imp.win_separated is separated
+    assert [t.minutes for t in imp.trajectory] == [5, 10, 20]
+    for t in imp.trajectory:
+        led = duel_ledger(events, DOKU, "RB", "T-LIV", rosters,
+                          asof=imp.swap_sec + t.minutes * 60 - 1, since=imp.swap_sec)  # fmt: skip
+        assert (t.n, t.win_pct) == (led.duels, led.win_pct)
+    early = swap_impact(events, rosters, "T-LIV", DOKU, "RB", asof=imp.swap_sec + 100)
+    assert early.after.beaten_per_10 is None and early.trajectory == []
+
+
+# ------------------------------------------------------ C9: threat from the channel
+def test_channel_shots_respect_since():
+    ev = Events()
+    p = ev.new_poss()
+    ev.add(
+        298,
+        "shot",
+        "blocked",
+        "T-MCI",
+        "P-MCI-09",
+        possession_id=p,
+        start_x=86.0,
+        start_y=60.0,
+        body_part="right_foot",
+        qualifiers={"xg": 0.2},
+    )  # before `since`
+    ev.add(305, "take_on", "success", "T-MCI", DOKU, possession_id=p, start_x=70.0,
+           start_y=80.0, opponent_id=FRIMPONG, qualifiers={"duel": TERMS})  # fmt: skip
+    led = duel_ledger(ev.items, DOKU, "RB", "T-LIV", ROSTERS, asof=900, since=300)
+    assert led.channel_shots == 0 and led.channel_xg == 0
+
+
+def test_channel_entries_count_crosses_and_box_entries():
+    ev = Events()
+    t = ev.take_on(100, True, y=80.0)
+    ev.add(
+        104,
+        "pass",
+        "success",
+        "T-MCI",
+        DOKU,
+        possession_id=t.possession_id,
+        start_x=80.0,
+        start_y=85.0,
+        end_x=94.0,
+        end_y=50.0,
+        recipient_id="P-MCI-09",
+        qualifiers={"cross": True},
+    )  # completed cross
+    t2 = ev.take_on(200, True, y=80.0)
+    ev.add(
+        203,
+        "carry",
+        "success",
+        "T-MCI",
+        DOKU,
+        possession_id=t2.possession_id,
+        start_x=75.0,
+        start_y=78.0,
+        end_x=86.0,
+        end_y=70.0,
+    )  # carried into the box
+    t3 = ev.take_on(300, True, y=80.0)
+    ev.add(
+        303,
+        "pass",
+        "fail",
+        "T-MCI",
+        DOKU,
+        possession_id=t3.possession_id,
+        start_x=80.0,
+        start_y=85.0,
+        end_x=94.0,
+        end_y=50.0,
+        qualifiers={"cross": True},
+    )  # cut out: no
+    led = duel_ledger(ev.items, DOKU, "RB", "T-LIV", ROSTERS, asof=1000)
+    assert led.channel_entries == 2 and led.channel_shots == 0
+
+
+def test_records_vs_matches_per_defender_ledgers(swap_match):
+    from app.services.matchups import records_vs
+
+    rosters, events = swap_match
+    rec = records_vs(events, rosters, "T-LIV", DOKU, 5000)
+    for pid in (FRIMPONG, SZOBOSZLAI, GOMEZ):
+        led = duel_ledger(events, DOKU, pid, "T-LIV", rosters, 5000)
+        assert rec.get(pid, (0, 0)) == (led.won, led.duels)
+
+
+# ------------------------------------------------------------- C12: edge cases
+def test_no_hot_duel_once_the_tormentor_has_left():
+    ev = Events()
+    for sec in (1000, 1100, 1200, 1300, 1400, 1500):
+        ev.take_on(sec, True)
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1550)
+    ev.add(1600, "substitution", "neutral", "T-MCI", DOKU, recipient_id="P-MCI-47")
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1650) == []

@@ -5,6 +5,7 @@ write and is grounding-checked. The LLM never computes or alters match facts.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,6 +52,11 @@ def _asof(match_id: str, asof_sec: int | None) -> int:
     """Agents may look back but never past the live replay clock (no future leakage)."""
     clock = int(ctx().replays.get(match_id).clock)
     return clock if asof_sec is None else min(asof_sec, clock)
+
+
+def resolve_asof(match_id: str, asof_sec: int | None) -> int:
+    """Public form of the clock clamp, for callers that must pass a concrete second."""
+    return _asof(match_id, asof_sec)
 
 
 def _events(match_id: str, asof: float) -> list[MatchEvent]:
@@ -227,7 +233,10 @@ async def get_bench_view(
     """Everything on the assistant-coach page: sticky hot-duel alert, ledger, ranked options,
     radar cards, sprint race, swap impact (after a position change), briefing seed."""
     asof = _asof(match_id, asof_sec)
-    view = build_bench_view(ctx().store, ctx().replays, match_id, team_id, asof)
+    # CPU-bound: run off the event loop so the replay clock and SSE keep ticking (C10)
+    view = await asyncio.to_thread(
+        build_bench_view, ctx().store, ctx().replays, match_id, team_id, asof
+    )
     return view.model_dump()
 
 
@@ -238,7 +247,7 @@ async def evaluate_substitutions(
     bounded policy dimensions with pros/cons quoting the numbers and evidence ids."""
     store = ctx().store
     asof = _asof(match_id, asof_sec)
-    inp = advisor_input(store, match_id, team_id, asof)
+    inp = await asyncio.to_thread(advisor_input, store, match_id, team_id, asof)
     events = _events(match_id, asof)
     subs_used = sum(1 for e in events if e.event_type == "substitution" and e.team_id == team_id)
     if inp is None:
@@ -251,7 +260,7 @@ async def evaluate_substitutions(
             "options": [keep.model_dump() | {"incoming_name": None, "outgoing_name": None}],
             "caveat": CAVEAT, "synthetic": True,
         }  # fmt: skip
-    recs = evaluate(inp)
+    recs = await asyncio.to_thread(evaluate, inp)
     h = inp.hot
     diagnosis = (
         f"{_name(h.attacker_id)} has beaten {_name(h.defender_id)} ({h.defender_slot}) "

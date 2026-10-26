@@ -51,9 +51,11 @@ export const askAgent = (matchId: string, question: string, audience: "fan" | "a
   }).then((r) => json<AgentAnswer>(r));
 
 /** Assistant-coach briefing: Claude when available, else the deterministic rules text. */
-export const askBriefing = (matchId: string, teamId: string) =>
+export const askBriefing = (matchId: string, teamId: string, asofSec: number | null, chosen: string | null) =>
   fetch(`${API_BASE}/api/agent/ask`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ match_id: matchId, team_id: teamId, mode: "briefing", question: "" }),
+    body: JSON.stringify({
+      match_id: matchId, team_id: teamId, mode: "briefing", question: "", asof_sec: asofSec, chosen,
+    }),
   }).then((r) => json<AgentAnswer>(r));

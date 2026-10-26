@@ -102,3 +102,22 @@ def test_briefing_rules_fallback_cites_evidence(client, monkeypatch):
     known = {e.event_id: e.event_sec for e in tools.ctx().store.events(MATCH)}
     assert res["evidence_event_ids"]
     assert all(i in known and known[i] <= ALERT_SEC for i in res["evidence_event_ids"])
+
+
+def test_briefing_follows_the_scrubbed_second(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app import api
+
+    monkeypatch.setattr(api, "get_settings", lambda: SimpleNamespace(agent_provider="rules"))
+    client.post(f"/api/matches/{MATCH}/replay", json={"action": "seek", "value": 5400})
+    try:
+        r = client.post("/api/agent/ask", json={"match_id": MATCH, "mode": "briefing",
+                                               "team_id": "T-LIV", "asof_sec": 3714,
+                                               "chosen": "keep"})  # fmt: skip
+        res = r.json()
+    finally:
+        client.post(f"/api/matches/{MATCH}/replay", json={"action": "seek", "value": ALERT_SEC})
+    secs = {e.event_id: e.event_sec for e in tools.ctx().store.events(MATCH)}
+    assert "62'" in res["answer"] and "Since the 70'" not in res["answer"]
+    assert all(secs[i] <= 3714 for i in res["evidence_event_ids"])

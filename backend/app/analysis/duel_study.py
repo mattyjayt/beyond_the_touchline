@@ -20,8 +20,6 @@ import random
 from dataclasses import dataclass, field
 
 import numpy as np
-from sklearn.feature_selection import mutual_info_classif
-from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -39,10 +37,40 @@ MD_OUT = ROOT / "docs" / "variable_importance.md"
 CAVEAT = (
     f"methodology demo: importance mirrors the generator (`{MODEL_VERSION}`); not football truth"
 )
-METHOD = "standardised logistic regression · permutation importance (ROC AUC drop, 5 repeats)"
-TOP_N = 25
+METHOD = (
+    "standardised logistic regression on primitive inputs · grouped permutation importance "
+    "(ROC AUC drop, 5 repeats) · ranks over several seeds"
+)
+N_REPEATS = 5
 
 _BY_ID = {v.id: v for v in VARIABLES}
+# Importance is measured per GROUP of primitive inputs: near-duplicates (attacker vs defender
+# acceleration, time-to-5 m vs acceleration) would otherwise split credit arbitrarily. Derived
+# terms (duel.*, gaps, time-to-5 m, fatigue multipliers) are not fitted at all (C11).
+GROUPS: dict[str, dict] = {
+    "group.acceleration": {"name": "Acceleration (attacker + defender)", "family": "PHY",
+                           "vars": ["phy.att_accel_ms2", "phy.def_accel_ms2"]},
+    "group.pace": {"name": "Top speed (attacker + defender)", "family": "PHY",
+                   "vars": ["phy.att_top_speed_kmh", "phy.def_top_speed_kmh"]},
+    "group.agility": {"name": "Agility (attacker + defender)", "family": "PHY",
+                      "vars": ["phy.att_agility_idx", "phy.def_agility_idx"]},
+    "group.stamina": {"name": "Stamina and minutes played", "family": "CTX",
+                      "vars": ["phy.att_stamina_idx", "phy.def_stamina_idx",
+                               "ctx.att_minutes_on", "ctx.def_minutes_on"]},
+    "group.technique": {"name": "Dribbling vs defending priors", "family": "PRI",
+                        "vars": ["pri.att_dribbling", "pri.def_defending"]},
+    "group.stance": {"name": "Defender stance (tendency + per-duel)", "family": "PHY",
+                     "vars": ["phy.def_stance_idx", "ctx.stance_draw"]},
+    "group.cover": {"name": "Isolation and cover", "family": "CTX",
+                    "vars": ["ctx.isolated", "ctx.cover_near"]},
+    "group.transition": {"name": "Transition exposure", "family": "CTX",
+                         "vars": ["ctx.transition"]},
+    "group.booking": {"name": "Defender on a yellow", "family": "CTX",
+                      "vars": ["ctx.defender_on_yellow"]},
+    "group.touchline": {"name": "Distance to the touchline", "family": "CTX",
+                        "vars": ["ctx.touch_dist"]},
+}  # fmt: skip
+FITTED_IDS: tuple[str, ...] = tuple(v for g in GROUPS.values() for v in g["vars"])
 CAUSAL_IDS: tuple[str, ...] = tuple(i for i in STUDY_IDS if _BY_ID[i].engine_causal)
 
 
@@ -50,11 +78,12 @@ CAUSAL_IDS: tuple[str, ...] = tuple(i for i in STUDY_IDS if _BY_ID[i].engine_cau
 class StudyResult:
     n: int
     seed: int
-    auc: float
+    auc: float  # mean test AUC of the fitted model over the seeds
+    oracle_auc: float  # mean test AUC of the TRUE p_beat: the ceiling any model can reach
     method: str
-    ranked: list[ImportanceItem]  # top engine-causal variables
-    mutual_info: dict[str, float] = field(default_factory=dict)
-    not_ranked: list[str] = field(default_factory=list)  # descriptive study variables
+    ranked: list[ImportanceItem]  # groups, by mean importance, with rank intervals
+    seeds: list[int] = field(default_factory=list)
+    not_ranked: list[str] = field(default_factory=list)  # study variables not fitted
 
 
 def build_features(att: Player, dfn: Player, c: DuelContext, stance: float) -> dict[str, float]:
@@ -106,8 +135,8 @@ def build_features(att: Player, dfn: Player, c: DuelContext, stance: float) -> d
     return {k: float(f[k]) for k in STUDY_IDS}
 
 
-def sample(seed: int, n: int) -> tuple[np.ndarray, np.ndarray]:
-    """``n`` sampled duels: (features in STUDY_IDS order, beaten 0/1)."""
+def sample(seed: int, n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``n`` sampled duels: (features in STUDY_IDS order, beaten 0/1, true p_beat)."""
     rng = random.Random(f"duel-study-{seed}")
     _, players = load_reference(seed)
     usable = [p for p in players if p.physical and p.priors]
@@ -115,6 +144,7 @@ def sample(seed: int, n: int) -> tuple[np.ndarray, np.ndarray]:
     defenders = [p for p in usable if ROLE_GROUP[p.primary_position] in ("DEF", "MID")]
     X = np.empty((n, len(STUDY_IDS)))
     y = np.empty(n, dtype=int)
+    p = np.empty(n)
     for i in range(n):
         att, dfn = rng.choice(attackers), rng.choice(defenders)
         while dfn.team_id == att.team_id:
@@ -128,69 +158,100 @@ def sample(seed: int, n: int) -> tuple[np.ndarray, np.ndarray]:
         stance = min(1.0, max(0.0, rng.gauss(dfn.physical.stance_idx / 100, 0.15)))
         feats = build_features(att, dfn, c, stance)
         X[i] = [feats[k] for k in STUDY_IDS]
-        y[i] = rng.random() < duel_prob(att, dfn, c, stance).p_beat
-    return X, y
+        p[i] = duel_prob(att, dfn, c, stance).p_beat
+        y[i] = rng.random() < p[i]
+    return X, y, p
 
 
-def run_study(seed: int, n: int) -> StudyResult:
-    X, y = sample(seed, n)
-    cols = [STUDY_IDS.index(k) for k in CAUSAL_IDS]
-    Xc = X[:, cols]
-    X_tr, X_te, y_tr, y_te = train_test_split(Xc, y, test_size=0.25, random_state=seed, stratify=y)
+def _one_seed(seed: int, n: int) -> tuple[float, float, dict[str, float]]:
+    """(model AUC, oracle AUC, group -> mean AUC drop) for one seed."""
+    X, y, p = sample(seed, n)
+    cols = [STUDY_IDS.index(k) for k in FITTED_IDS]
+    Xf = X[:, cols]
+    idx = np.arange(n)
+    tr, te = train_test_split(idx, test_size=0.25, random_state=seed, stratify=y)
     model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
-    model.fit(X_tr, y_tr)
-    auc = round(float(roc_auc_score(y_te, model.predict_proba(X_te)[:, 1])), 4)
-    perm = permutation_importance(
-        model, X_te, y_te, scoring="roc_auc", n_repeats=5, random_state=seed
-    )
-    mi = mutual_info_classif(X_te, y_te, random_state=seed)
-    order = sorted(range(len(CAUSAL_IDS)), key=lambda j: (-perm.importances_mean[j], CAUSAL_IDS[j]))
+    model.fit(Xf[tr], y[tr])
+    base = roc_auc_score(y[te], model.predict_proba(Xf[te])[:, 1])
+    oracle = roc_auc_score(y[te], p[te])
+    rng = np.random.default_rng(seed)
+    drops: dict[str, float] = {}
+    for gid, g in GROUPS.items():
+        gcols = [FITTED_IDS.index(v) for v in g["vars"]]
+        losses = []
+        for _ in range(N_REPEATS):
+            Xp = Xf[te].copy()
+            perm = rng.permutation(len(te))
+            Xp[:, gcols] = Xp[perm][:, gcols]  # permute the group's columns together
+            losses.append(base - roc_auc_score(y[te], model.predict_proba(Xp)[:, 1]))
+        drops[gid] = float(np.mean(losses))
+    return float(base), float(oracle), drops
+
+
+def run_study(seed: int, n: int, seeds: int = 5) -> StudyResult:
+    seed_list = [seed + k for k in range(seeds)]
+    runs = [_one_seed(s, n) for s in seed_list]
+    ranks: dict[str, list[int]] = {g: [] for g in GROUPS}
+    for _, _, drops in runs:
+        for r, g in enumerate(sorted(GROUPS, key=lambda g: (-drops[g], g)), start=1):
+            ranks[g].append(r)
+    mean = {g: float(np.mean([d[g] for _, _, d in runs])) for g in GROUPS}
+    order = sorted(GROUPS, key=lambda g: (-mean[g], g))
     ranked = [
         ImportanceItem(
-            var_id=CAUSAL_IDS[j],
-            name=_BY_ID[CAUSAL_IDS[j]].name,
-            family=_BY_ID[CAUSAL_IDS[j]].family,
-            importance=round(float(perm.importances_mean[j]), 5),
-            rank=r,
+            var_id=g, name=GROUPS[g]["name"], family=GROUPS[g]["family"],
+            importance=round(mean[g], 5), rank=r, rank_lo=min(ranks[g]), rank_hi=max(ranks[g]),
         )
-        for r, j in enumerate(order[:TOP_N], start=1)
-    ]
+        for r, g in enumerate(order, start=1)
+    ]  # fmt: skip
+    for item in ranked:  # the overall rank sits inside the per-seed interval by construction
+        item.rank_lo = min(item.rank_lo or item.rank, item.rank)
+        item.rank_hi = max(item.rank_hi or item.rank, item.rank)
     return StudyResult(
-        n=n, seed=seed, auc=auc, method=METHOD, ranked=ranked,
-        mutual_info={CAUSAL_IDS[j]: round(float(mi[j]), 5) for j in range(len(CAUSAL_IDS))},
-        not_ranked=[i for i in STUDY_IDS if i not in CAUSAL_IDS],
+        n=n, seed=seed, seeds=seed_list, method=METHOD, ranked=ranked,
+        auc=round(float(np.mean([a for a, _, _ in runs])), 4),
+        oracle_auc=round(float(np.mean([o for _, o, _ in runs])), 4),
+        not_ranked=[i for i in STUDY_IDS if i not in FITTED_IDS],
     )  # fmt: skip
 
 
 def write(result: StudyResult) -> None:
     JSON_OUT.parent.mkdir(parents=True, exist_ok=True)
     JSON_OUT.write_text(json.dumps({
-        "caveat": CAVEAT, "method": result.method, "seed": result.seed, "n": result.n,
-        "auc": result.auc, "model_version": MODEL_VERSION,
-        "ranked": [r.model_dump() for r in result.ranked],
-        "mutual_info": result.mutual_info, "not_ranked": result.not_ranked, "synthetic": True,
+        "caveat": CAVEAT, "method": result.method, "seed": result.seed, "seeds": result.seeds,
+        "n": result.n, "auc": result.auc, "oracle_auc": result.oracle_auc,
+        "model_version": MODEL_VERSION, "ranked": [r.model_dump() for r in result.ranked],
+        "groups": GROUPS, "not_ranked": result.not_ranked, "synthetic": True,
     }, indent=2))  # fmt: skip
+    seeds = f"{result.seeds[0]}–{result.seeds[-1]}"
     lines = [
         "# Variable importance (duel study)",
         "",
         f"> **{CAVEAT}.** Generated by `uv run python -m app.analysis.duel_study --n {result.n}`.",
         "",
-        f"- Method: {result.method}; mutual information as a cross-check.",
-        f"- Seed {result.seed} · n = {result.n} simulated duels · test AUC {result.auc}.",
+        f"- Method: {result.method}.",
         (
-            "- Correlated variables share credit: a duel term (e.g. `duel.ctx`) absorbs much of its "
-            "inputs' importance (e.g. stance), so read families together, not single ranks."
+            f"- Seeds {seeds} · n = {result.n} simulated duels per seed · mean test AUC "
+            f"{result.auc} against an oracle AUC of {result.oracle_auc} (scoring with the true "
+            "p_beat). "
+            + (
+                "The model is at the ceiling, so the ranking says how the generator is built, "
+                "nothing more."
+                if result.auc >= result.oracle_auc - 0.02
+                else "The model is below the ceiling: some generator structure is not captured."
+            )
         ),
-        "- Only engine-causal variables are ranked. Descriptive study variables (not ranked): "
+        "- Groups pool near-duplicate inputs so they don't split credit. Derived terms "
+        "(duel model terms, gaps, time-to-5 m, fatigue multipliers) are not fitted: "
         + ", ".join(f"`{i}`" for i in result.not_ranked)
         + ".",
         "",
-        "| rank | variable | family | permutation importance (AUC drop) | mutual info |",
+        "| rank | group | inputs | AUC drop (mean) | rank range over seeds |",
         "|---|---|---|---|---|",
     ]
     lines += [
-        f"| {r.rank} | `{r.var_id}` {r.name} | {r.family} | {r.importance:.5f} "
-        f"| {result.mutual_info[r.var_id]:.5f} |"
+        f"| {r.rank} | {r.name} | {', '.join(f'`{v}`' for v in GROUPS[r.var_id]['vars'])} "
+        f"| {r.importance:.5f} | {r.rank_lo}–{r.rank_hi} |"
         for r in result.ranked
     ]
     MD_OUT.write_text("\n".join(lines) + "\n")
@@ -200,12 +261,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--n", type=int, default=40000)
     ap.add_argument("--seed", type=int, default=get_settings().sim_seed)
+    ap.add_argument("--seeds", type=int, default=5)
     args = ap.parse_args()
-    result = run_study(args.seed, args.n)
+    result = run_study(args.seed, args.n, args.seeds)
     write(result)
-    print(f"duel study  n={result.n} seed={result.seed} AUC={result.auc}  ({CAVEAT})")
+    print(f"duel study  n={result.n} seeds={result.seeds} AUC={result.auc} "
+          f"oracle={result.oracle_auc}  ({CAVEAT})")  # fmt: skip
     for r in result.ranked:
-        print(f"  {r.rank:>2}. {r.var_id:<28} {r.importance:.5f}")
+        print(f"  {r.rank:>2}. {r.var_id:<22} {r.importance:.5f}  ranks {r.rank_lo}-{r.rank_hi}")
 
 
 if __name__ == "__main__":

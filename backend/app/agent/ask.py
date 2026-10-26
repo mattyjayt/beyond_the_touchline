@@ -30,8 +30,9 @@ Audience "analyst": precise, metric-led, include rating/form deviation and optio
 """
 
 
-BRIEFING_PROMPT = """Write a 3-4 sentence assistant-coach briefing for {team} (SIMULATED match).
-Call get_bench_view(team_id={team_id}) first and use ONLY its numbers. Name the losing duel and
+BRIEFING_PROMPT = """Write a 3-4 sentence assistant-coach briefing for {team} (SIMULATED match)
+as of match second {asof}. Call get_bench_view(team_id={team_id}, asof_sec={asof}) first and use
+ONLY its numbers; say nothing about later events. {chosen} Name the losing duel and
 cite 2-4 evidence event IDs from it in square brackets. Present the advisor's options in the
 order returned - never reorder them - and end with the KEEP alternative. Say it is simulated."""
 
@@ -42,6 +43,8 @@ class AskRequest(BaseModel):
     audience: str = "fan"
     mode: Literal["chat", "briefing"] = "chat"
     team_id: str | None = None  # briefing: the advising team (default: home)
+    asof_sec: int | None = None  # briefing: the second the page shows (default: live clock)
+    chosen: str | None = None  # briefing: the option key the coach picked, if any
 
 
 class AskResponse(BaseModel):
@@ -100,7 +103,8 @@ def _sdk_tools(match_id: str) -> list[Any]:
              {**mid, "team_id": str}),
         wrap(tools.get_bench_view, "get_bench_view",
              "Assistant-coach page payload: sticky alert, ledger, ranked options, radar cards, "
-             "sprint race, swap impact.", {**mid, "team_id": str}),
+             "sprint race, swap impact. asof_sec: the match second to view (clamped to the "
+             "replay clock).", {**mid, "team_id": str, "asof_sec": int}),
         wrap(tools.get_insight_candidates, "get_insight_candidates",
              "Deterministic triggers (goals, momentum, hot duels) since a second.",
              {**mid, "since_sec": int}),
@@ -137,7 +141,15 @@ async def ask_claude(req: AskRequest) -> AskResponse:
     teams = tools.ctx().store.teams
     if req.mode == "briefing":
         team_id = _briefing_team(req)
-        question = BRIEFING_PROMPT.format(team=teams[team_id].name, team_id=team_id)
+        chosen = (
+            f"The coach is leaning towards option '{req.chosen}': address it, without reordering."
+            if req.chosen
+            else ""
+        )
+        asof = tools.resolve_asof(req.match_id, req.asof_sec)
+        question = BRIEFING_PROMPT.format(
+            team=teams[team_id].name, team_id=team_id, asof=asof, chosen=chosen
+        )
     else:
         question = req.question
     prompt = (
@@ -169,7 +181,7 @@ def _briefing_team(req: AskRequest) -> str:
 
 async def briefing_rules(req: AskRequest, note: str | None = None) -> AskResponse:
     """Deterministic briefing: the bench view's seed text and its evidence."""
-    view = await tools.get_bench_view(req.match_id, _briefing_team(req))
+    view = await tools.get_bench_view(req.match_id, _briefing_team(req), req.asof_sec)
     answer = view["briefing_seed"] + (f"\n[{note}]" if note else "")
     return AskResponse(
         answer=answer, evidence_event_ids=view["briefing_evidence_ids"], provider="rules-v0"

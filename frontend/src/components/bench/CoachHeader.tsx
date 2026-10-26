@@ -57,6 +57,7 @@ export function CoachHeader({ detail, view, asof, clock, onAsof }: {
           {asof === null ? "● Live" : "Go live"}
         </button>
       </div>
+      {view?.disclosure && <p className="text-[11px] leading-snug text-[var(--warn)]">{view.disclosure}</p>}
       {asof !== null && asof > clock && (
         <p className="text-[11px] text-[var(--muted)]">The replay is at {clockLabel(clock)}: the view stops there (no future events).</p>
       )}

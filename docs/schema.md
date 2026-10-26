@@ -176,5 +176,27 @@ Before the search it also checks, once, that Szoboszlai and Gomez match or beat 
 - Cards: a straight red is 0.15% per foul, and a booked player's chance of another card is scaled by 0.1 (`SECOND_YELLOW_FACTOR`). Historical dismissals fell from 0.8 to about 0.05 a match (the target was ≤ 0.2).
 - The hot-duel trigger is beaten ≥ 6 in 20 minutes, or a defender win rate ≤ 30% with n ≥ 8. These were the first pre-listed thresholds to pass the rarity test, which checks every second and allows the trigger to fire in no more than 3 of the 20 historical matches. It now fires in none of them.
 - The demo seed search was then re-run with two added pre-swap criteria (11 v 11, level or one behind).
-- Disclosure: the seed search was re-run after an earlier seed's post-swap result had been seen. The reason was pre-swap only: that seed had Liverpool down to 9 men by 53'. The new seed's post-swap result is reported as it came out.
+
+**Advisor rankings after the review fixes (advisor-v1, same data).** Every option is scored as a change against KEEP; near-ties (within 0.03) are flagged. A new RB holder is monitored (KEEP only) until he has 4 duels of his own.
+
+| As of | Alert state | Ranking (policy score vs KEEP) |
+|---|---|---|
+| 3714 s (61') | active | 1) Szoboszlai to RB, Frimpong off, Chiesa on at RW (+0.31); 2) Gomez for Frimpong (+0.25, tied); 3) Swap: Szoboszlai to RB, Frimpong to RW (+0.23, tied); 4) Bradley for Frimpong (+0.14); 5) KEEP |
+| 4200 s (70') | monitoring | KEEP only (Szoboszlai has no duels at RB yet) |
+| 4800 s (80') | active | 1) Gomez for Szoboszlai (+0.24); 2) Swap: Endo to RB, Szoboszlai to LDM (+0.16); 3) Endo to RB, Szoboszlai off, Mac Allister on at LDM (+0.11); 4) Bradley for Szoboszlai (+0.08); 5) KEEP |
+| 5400 s (90') | active | 1) Gomez for Szoboszlai (+0.01, tied); 2) KEEP (tied); 3) Bradley for Szoboszlai; 4) Swap: Leoni to RB, Szoboszlai to RCB; 5) Leoni to RB, Szoboszlai off, Gomez on at RCB |
+
+The swap Liverpool make at 70' was ranked #3 at the alert, level with #2.
+
+**Full chronology of the demo seed (disclosure).** The demo went through three seeds. Every change had a pre-swap reason on record, but every re-run happened after the previous seed's post-swap result had been seen, and each one moved the post-swap result in the story's favour. A reviewer flagged this pattern; it is listed here so readers can judge it.
+
+| Step | Change | Demo seed | Post-swap result (RB win % vs Doku) |
+|---|---|---|---|
+| 1 | sim-v0.2, first search | 2029 | Szoboszlai 30% (n=10) vs Frimpong 42% (n=19): the swap underdelivered |
+| 2 | Owner chose recalibration: Frimpong's defending prior **pinned** from 84 to 68 (spec: "modest"), duel baseline added, hot-duel thresholds tightened | 2027 | 29% → 44% |
+| 3 | Seed 2027 had Liverpool down to 9 men by 53'; card rates fixed, baseline re-derived, two pre-swap criteria added (11 v 11, level or one behind) | 2036 | 21% (n=14) → 47% (n=19) |
+
+- The profiles of Doku, Frimpong, Szoboszlai, Gomez and Bradley are **pinned** (fictional values, `squads.py`), chosen for the storyline.
+- Doku's take-on volume and his pairing with whoever holds RB stay **scripted** after the swap; only the outcomes are unscripted.
+- While Frimpong holds RB in the window, a `script` handicap of +6 on the logit numerator (+0.6 z) applies.
 
