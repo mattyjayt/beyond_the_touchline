@@ -69,7 +69,7 @@ API: http://127.0.0.1:8000 (`/health`, `/docs`). Web: http://localhost:3000.
 
 ## Environment model
 
-One root `.env` with sections SWITCH (`APP_MODE`), SHARED, `LOCAL_*`, `CLOUD_*`. Backend code reads only resolved properties on `Settings` (`settings.database_url`, `settings.agent_provider`, …) — never `LOCAL_`/`CLOUD_` keys directly. The frontend receives `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_APP_MODE` from `run.sh`. Cloud values will be written by future Terraform provisioning (`infra/`); until then, design locally and document the Azure equivalent in `docs/architecture.md`.
+One root `.env` with sections SWITCH (`APP_MODE`), SHARED, `LOCAL_*`, `CLOUD_*`. Backend code reads only resolved properties on `Settings` (`settings.database_url`, `settings.agent_provider`, …) — never `LOCAL_`/`CLOUD_` keys directly. The frontend receives `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_APP_MODE` from `run.sh`. Cloud values will be written by Terraform provisioning (`infra/`), which is **deliberately deferred** for now; until then, design locally and document every Azure equivalent in `docs/azure.md` (services, code changes, Claude Code → Microsoft Foundry agent swap) with costs in `docs/architecture.md` §5. `DEMO.md` (repo root) is the user-facing setup and demo guide; keep it in step with behaviour changes.
 
 ## Conventions
 
