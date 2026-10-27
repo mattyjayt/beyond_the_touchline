@@ -1,4 +1,4 @@
-# Inside the Game: demo guide
+# Beyond the Touchline: demo guide
 
 This guide covers four things:
 1. How to install and run the demo.
@@ -26,8 +26,8 @@ Without Claude Code the app still works. The analyst and the briefing fall back 
 ### Install
 
 ```bash
-git clone https://github.com/mattyjayt/inside_the_game.git
-cd inside_the_game
+git clone https://github.com/mattyjayt/beyond_the_touchline.git
+cd beyond_the_touchline
 scripts/install.sh
 ```
 
@@ -79,7 +79,7 @@ cd backend && uv run python -m app.sim.calibrate            # re-run the calibra
 The scripts are bash and use POSIX tools (`lsof`, `pkill`, `trap`, sourcing `.env`), so native Windows isn't supported yet. Today:
 
 1. Install **WSL2** with Ubuntu (`wsl --install` in an admin PowerShell, then restart).
-2. Inside the Ubuntu shell, install uv and bun (the commands in the table above), clone the repo **inside the Linux file system** (e.g. `~/inside_the_game`, not `/mnt/c/...`, which is much slower), then run `scripts/install.sh` and `scripts/run.sh` as normal.
+2. Inside the Ubuntu shell, install uv and bun (the commands in the table above), clone the repo **inside the Linux file system** (e.g. `~/beyond_the_touchline`, not `/mnt/c/...`, which is much slower), then run `scripts/install.sh` and `scripts/run.sh` as normal.
 3. Open http://localhost:3000 in your Windows browser. WSL2 forwards localhost automatically.
 4. For the AI analyst, install and log in to Claude Code inside WSL as well, or set `LOCAL_AGENT_PROVIDER=rules`.
 

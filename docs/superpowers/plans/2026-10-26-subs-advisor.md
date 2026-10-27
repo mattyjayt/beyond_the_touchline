@@ -433,7 +433,7 @@
   - `useBenchView(matchId, teamId) -> { view: BenchView | null, asof: number, setAsof(sec|null), selected: string | null, select(rec_id), chosen: string | null, choose(rec_id) }`.
     - It refetches on a stream `state` tick (throttled to ≥ 2 s) or when the scrubber changes.
     - `null` asof means follow live.
-    - `chosen` is persisted in `localStorage` key `itg-bench-choice-{matchId}`, wrapped in try/catch.
+    - `chosen` is persisted in `localStorage` key `btt-bench-choice-{matchId}`, wrapped in try/catch.
   - `chart.ts`: `linear(domain: [number, number], range: [number, number]) => (v: number) => number`, `polar(cx, cy, r, angleRad) => [x, y]`, `linePath(points: [number, number][]) => string`, `areaPath(points, baseline) => string`, and `PALETTE = { us: "#C8102E", them: "#6CABDD", ghost: "…", grid: "…" }`. The colours come from CSS variables in `globals.css`.
 
 - [x] **Step 1: Read** `frontend/node_modules/next/dist/docs/` for dynamic segments, `params` and client components under `cacheComponents`. Note the exact pattern in a code comment.

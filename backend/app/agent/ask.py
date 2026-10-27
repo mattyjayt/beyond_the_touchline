@@ -16,7 +16,7 @@ from app.agent.rules import option_label
 log = logging.getLogger(__name__)
 EVIDENCE_RE = re.compile(r"SIM-[A-Z0-9]+-E\d{4}")
 
-SYSTEM_PROMPT = """You are the Match Analyst for "Inside the Game", a SIMULATED football match centre.
+SYSTEM_PROMPT = """You are the Match Analyst for "Beyond the Touchline", a SIMULATED football match centre.
 Rules (non-negotiable):
 - All matches, events, ratings and recommendations are synthetic simulations. Say so when relevant.
 - Never compute or invent football facts or numbers. Use ONLY values returned by your tools.
@@ -121,9 +121,9 @@ async def ask_claude(req: AskRequest) -> AskResponse:
         query,
     )
 
-    server = create_sdk_mcp_server("itg", tools=_sdk_tools(req.match_id))
+    server = create_sdk_mcp_server("btt", tools=_sdk_tools(req.match_id))
     tool_names = [
-        f"mcp__itg__{n}"
+        f"mcp__btt__{n}"
         for n in (
             "get_match_state", "get_player_performance", "get_player_history",
             "get_matchup_analysis", "get_duel_ledger", "evaluate_substitutions",
@@ -132,7 +132,7 @@ async def ask_claude(req: AskRequest) -> AskResponse:
     ]  # fmt: skip
     options = ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-        mcp_servers={"itg": server},
+        mcp_servers={"btt": server},
         tools=[],  # no built-in tools: only the match tools
         allowed_tools=tool_names,
         setting_sources=[],  # isolate from local CLAUDE.md / settings

@@ -51,7 +51,7 @@ export function MatchCenter() {
   return (
     <div className="mx-auto flex h-dvh w-full max-w-[1600px] flex-col gap-3 p-3 lg:p-4">
       <header className="flex items-center gap-3">
-        <h1 className="text-base font-semibold tracking-tight">Inside the Game</h1>
+        <h1 className="text-base font-semibold tracking-tight">Beyond the Touchline</h1>
         <span className="rounded-md border border-[var(--warn)] px-2 py-0.5 text-[10px] font-bold tracking-widest text-[var(--warn)]">SIMULATED</span>
         <span className="text-xs text-[var(--muted)]">{detail.match.match_id} · synthetic events · not real match data</span>
         <Link href={`/match/${detail.match.match_id}/bench`}

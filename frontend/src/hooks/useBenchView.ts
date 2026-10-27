@@ -6,7 +6,7 @@ import { fetchBench } from "@/lib/api";
 import type { BenchView } from "@/lib/types";
 
 const LIVE_REFETCH_MS = 2000;
-const choiceKey = (matchId: string) => `itg-bench-choice-${matchId}`;
+const choiceKey = (matchId: string) => `btt-bench-choice-${matchId}`;
 
 function readChoice(matchId: string): string | null {
   if (typeof window === "undefined") return null;

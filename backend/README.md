@@ -1,10 +1,10 @@
-# Backend: Inside the Game API
+# Backend: Beyond the Touchline API
 
 FastAPI service with the seeded match simulator, replay clock (SSE), deterministic analytics and the agent tool layer. See the [root README](../README.md) and [docs/](../docs).
 
 ```bash
 uv sync
-uv run python -m app.sim.generate                 # writes backend/data/inside_the_game.db
+uv run python -m app.sim.generate                 # writes backend/data/beyond_the_touchline.db
 uv run uvicorn app.main:app --reload              # http://127.0.0.1:8000/docs
 uv run pytest -q && uv run ruff check .
 ```

@@ -1,4 +1,4 @@
-# Inside the Game: MVP Architecture
+# Beyond the Touchline: MVP Architecture
 
 > **Everything here is synthetic.** The clubs are real Premier League clubs (Arsenal, Manchester City,
 > Liverpool, Chelsea, Manchester United) and use real squad names. Every match, event, rating, insight
@@ -53,7 +53,7 @@ flowchart LR
   end
 
   GEN["Synthetic generator<br/>(seeded, offline)<br/>python -m app.sim.generate"]
-  DB[("SQLite<br/>backend/data/inside_the_game.db")]
+  DB[("SQLite<br/>backend/data/beyond_the_touchline.db")]
   FILES[["backend/data/*.json<br/>seed datasets"]]
   CC["Claude Code<br/>(developer terminal)"]
 
@@ -253,7 +253,7 @@ Terraform exists, follow the manual provisioning order in [azure.md §5](azure.m
 | API + replay/SSE | uvicorn + FastAPI | **Azure Container Apps (Consumption)** | Free grant of 180,000 vCPU-s, 360,000 GiB-s and 2M requests per subscription per month. Scales to zero, and SSE works over its HTTP ingress. Fallback: App Service F1 (Linux), which has a daily CPU quota and always-on restrictions. |
 | Realtime fan-out | Direct SSE from the API | **Azure Web PubSub, Free** (or SignalR Free), *optional* | 20 concurrent connections and 20,000 outbound messages per unit per day. Messages over the limit are blocked, not billed. Only needed if many viewers share one replay. |
 | Event streaming at scale | In-process replay engine | **Azure Event Hubs** (+ Stream Analytics) | **Not free**: Basic tier is billed. Future work only. |
-| Relational DB | SQLite (`backend/data/inside_the_game.db`) | **Azure SQL Database, free offer** | 100,000 vCore-s, 32 GB data and 32 GB backup per DB per month, with no expiry, up to 10 DBs per subscription. Choose **auto-pause at limit** to avoid charges, and check vCore and storage settings when creating it. Alternative: Postgres Flexible Server B1ms (12 months free on a new account). |
+| Relational DB | SQLite (`backend/data/beyond_the_touchline.db`) | **Azure SQL Database, free offer** | 100,000 vCore-s, 32 GB data and 32 GB backup per DB per month, with no expiry, up to 10 DBs per subscription. Choose **auto-pause at limit** to avoid charges, and check vCore and storage settings when creating it. Alternative: Postgres Flexible Server B1ms (12 months free on a new account). |
 | Files / synthetic datasets | `backend/data/*.json` | **Azure Blob Storage** | 5 GB LRS free for 12 months on a new account. Otherwise it costs a few cents at this scale. |
 | Agent | `rules` / Claude Code via `/mcp` / Agent SDK | **Microsoft Foundry Agent Service** + an Azure OpenAI small model, or a Claude model deployed in Foundry | Pay-as-you-go, with no meaningful free tier. Keep `rules` as a fallback so the demo never depends on model availability. |
 | Secrets | `.env` | **Azure Key Vault** | Charged per operation, negligible at MVP scale. ACA reads secrets via managed identity. |
@@ -328,7 +328,7 @@ flowchart LR
 ## 7. Repo layout (target)
 
 ```
-inside_the_game/
+beyond_the_touchline/
 ├── .env.example            # SWITCH / SHARED / LOCAL_* / CLOUD_*
 ├── .mcp.json               # registers the backend /mcp server for Claude Code
 ├── CLAUDE.md  README.md

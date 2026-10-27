@@ -1,7 +1,7 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Inside the Game API - synthetic football event replay, ratings and agent tools"
+description = "Beyond the Touchline API - synthetic football event replay, ratings and agent tools"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

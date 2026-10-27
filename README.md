@@ -1,4 +1,4 @@
-# Inside the Game
+# Beyond the Touchline
 
 An AI-assisted football match centre. A seeded simulator produces a Premier League-style match as a stream of events. Deterministic services turn those events into live stats, ratings, alerts and substitution options, and an AI analyst explains them, citing the events behind every claim.
 
@@ -51,9 +51,9 @@ More detail in [docs/architecture.md](docs/architecture.md) and [docs/schema.md]
 |---|---|---|
 | **Rules agent** (always on) | Deterministic triggers publish templated fan/analyst insights during replay | none |
 | **UI chat** → Claude Agent SDK | `POST /api/agent/ask` runs Claude with the match tools; falls back to rules on failure | `LOCAL_AGENT_PROVIDER=claude_code` (default) + Claude Code login |
-| **Claude Code as live analyst** | Claude Code connects to the running backend over MCP and publishes insights straight to the UI | Run the app, open `claude` in the repo root, approve the `inside-the-game` server from `.mcp.json` |
+| **Claude Code as live analyst** | Claude Code connects to the running backend over MCP and publishes insights straight to the UI | Run the app, open `claude` in the repo root, approve the `beyond-the-touchline` server from `.mcp.json` |
 
-Example prompt for Claude Code while the replay runs: *"Use the inside-the-game tools to watch SIM-001. Every few minutes, check the insight candidates and publish one grounded analyst insight with evidence."*
+Example prompt for Claude Code while the replay runs: *"Use the beyond-the-touchline tools to watch SIM-001. Every few minutes, check the insight candidates and publish one grounded analyst insight with evidence."*
 
 Other ways to authenticate Claude, such as an Anthropic API key, are in [docs/architecture.md §3](docs/architecture.md#3-agent-gateway). In Azure, Claude Code is replaced by a **Microsoft Foundry Agent Service** agent (an Azure OpenAI model or a Claude model deployed in Foundry) calling the same tools over `/mcp`; see [docs/azure.md §3](docs/azure.md#3-swapping-claude-code-for-a-microsoft-foundry-agent).
 

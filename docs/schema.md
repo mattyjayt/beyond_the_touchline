@@ -1,6 +1,6 @@
 # MVP Data Schema
 
-Narrowed from the spec (`Inside_the_Game_Synthetic_Data_and_Schema_Specification.pdf`, §3–§7). Canonical contracts are the Pydantic models in `backend/app/models/`; `frontend/src/lib/types.ts` mirrors them.
+Narrowed from the spec (`Inside_the_Game_Synthetic_Data_and_Schema_Specification.pdf` — *Inside the Game* was the project's working title; it is now **Beyond the Touchline** — §3–§7). Canonical contracts are the Pydantic models in `backend/app/models/`; `frontend/src/lib/types.ts` mirrors them.
 
 > **Synthetic data.** Club and player names come from `backend/app/seed/premier_league_squads.json` (real reference data). Every match, event, rating, insight and recommendation is simulated and carries `synthetic: true` / `source_type: "synthetic_simulation"`.
 

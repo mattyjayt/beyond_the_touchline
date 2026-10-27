@@ -7,14 +7,14 @@ from mcp.server.mcpserver import MCPServer
 
 from app.agent import tools
 
-INSTRUCTIONS = """Inside the Game: SIMULATED football match analysis tools.
+INSTRUCTIONS = """Beyond the Touchline: SIMULATED football match analysis tools.
 Workflow: get_match_state -> get_insight_candidates / get_player_performance /
 get_duel_ledger / evaluate_substitutions -> publish_insight (structured, evidence-cited).
 Never invent numbers; cite only event IDs returned by tools; include uncertainty; always weigh
 a KEEP option against substitutions and position swaps, and never reorder the advisor's
 ranking. You cannot see past the replay clock."""
 
-mcp = MCPServer(name="inside-the-game", instructions=INSTRUCTIONS)
+mcp = MCPServer(name="beyond-the-touchline", instructions=INSTRUCTIONS)
 
 
 @mcp.tool()

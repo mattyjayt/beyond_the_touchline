@@ -1,4 +1,4 @@
-# Frontend: Inside the Game match centre
+# Frontend: Beyond the Touchline match centre
 
 Next.js 16 (App Router), Tailwind v4 and Motion. The page is a static shell around a client-side match centre that reads the backend over REST and SSE. Run it through `scripts/run.sh` from the repo root, which sets `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_APP_MODE`.
 

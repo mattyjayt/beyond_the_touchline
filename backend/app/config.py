@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # --- local --------------------------------------------------------------
     local_api_base_url: str = "http://127.0.0.1:8000"
-    local_database_url: str = "sqlite:///backend/data/inside_the_game.db"
+    local_database_url: str = "sqlite:///backend/data/beyond_the_touchline.db"
     local_data_dir: str = "backend/data"
     local_agent_provider: AgentProvider = "claude_code"
 

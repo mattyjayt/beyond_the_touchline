@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Inside the Game · Simulated Match Centre",
+  title: "Beyond the Touchline · Simulated Match Centre",
   description: "Synthetic football event replay with explainable AI analysis. All match data is simulated.",
 };
 

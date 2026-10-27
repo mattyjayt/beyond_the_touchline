@@ -4,7 +4,7 @@ Guidance for Claude Code in this repository. The project owner edits this file a
 
 ## Project
 
-**Inside the Game** — an AI-assisted football intelligence MVP. A seeded simulator produces a synthetic Premier League-style match as an event stream; deterministic services turn events into ratings, alerts and substitution options; an AI analyst narrates them with evidence. The product spec is `docs/Inside_the_Game_Synthetic_Data_and_Schema_Specification.pdf`; the MVP narrowing lives in `docs/schema.md` and `docs/architecture.md`.
+**Beyond the Touchline** — an AI-assisted football intelligence MVP. A seeded simulator produces a synthetic Premier League-style match as an event stream; deterministic services turn events into ratings, alerts and substitution options; an AI analyst narrates them with evidence. The product spec is `docs/Inside_the_Game_Synthetic_Data_and_Schema_Specification.pdf`; the MVP narrowing lives in `docs/schema.md` and `docs/architecture.md`.
 
 Hackathon timeline: favour working, demoable increments over completeness.
 
@@ -26,7 +26,7 @@ Hackathon timeline: favour working, demoable increments over completeness.
 
 ## Agent gateway (how you act as the analyst)
 
-- With the app running, the `inside-the-game` MCP server (`.mcp.json` → `http://127.0.0.1:8000/mcp/`) exposes `get_match_state`, `get_player_performance`, `get_player_history`, `get_matchup_analysis`, `get_duel_ledger`, `evaluate_substitutions`, `get_bench_view`, `get_insight_candidates` and `publish_insight`.
+- With the app running, the `beyond-the-touchline` MCP server (`.mcp.json` → `http://127.0.0.1:8000/mcp/`) exposes `get_match_state`, `get_player_performance`, `get_player_history`, `get_matchup_analysis`, `get_duel_ledger`, `evaluate_substitutions`, `get_bench_view`, `get_insight_candidates` and `publish_insight`.
 - Tools never return data past the live replay clock. `publish_insight` rejects unknown or future evidence IDs and duplicate insight IDs. Use `generator_version` `claude-code-mcp` (set automatically).
 - UI chat goes to `POST /api/agent/ask`, which runs Claude through the Agent SDK (`app/agent/ask.py`, subscription login) and falls back to `rules`. The always-on rules agent is in `app/agent/rules.py`.
 - To add a tool: implement it once in `app/agent/tools.py`, then expose it in `mcp_server.py` and `ask.py::_sdk_tools`.

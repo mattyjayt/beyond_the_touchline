@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Inside the Game API",
+    title="Beyond the Touchline API",
     version=__version__,
     description="Synthetic football event replay, ratings and agent tools. All data is simulated.",
     lifespan=lifespan,
