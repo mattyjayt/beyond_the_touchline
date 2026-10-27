@@ -7,18 +7,38 @@ attacking frame (docs/schema.md §6). Deterministic for a given seed.
 
 from __future__ import annotations
 
+import logging
 import math
 import random
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from app.models import ROLE_GROUP, Match, MatchEvent, Player, RosterEntry, Team
+from app.sim.duel import DuelContext, duel_prob
 from app.sim.formations import Slot, formation_slots
 
-GENERATOR_VERSION = "sim-v0.1"
+log = logging.getLogger(__name__)
+
+GENERATOR_VERSION = "sim-v0.4"
+# Booked players are cautious: their chance of another card per foul is scaled down
+# (calibration C6, docs/schema.md §11).
+SECOND_YELLOW_FACTOR = 0.05
+STRAIGHT_RED_P = 0.0015  # per foul; ~0.05 straight reds a match
+GENERAL_YELLOW_P = 0.165  # per ordinary foul
+SPA_YELLOW_P = 0.8  # a beaten last man's tactical foul is almost always booked
+DOGSO_RED_P = 0.1  # ... and sometimes sent off when central and close to goal
+DOGSO_MIN_X = 76.0  # attacker frame: ~25 m from goal on a 105 m pitch
+DOGSO_Y = (30.0, 70.0)  # central band
 HALF_SEC = 2700
 MAX_SUBS = 5
 WIDE_ARCHETYPES = {"direct_winger", "inside_forward", "ball_carrier", "attacking_fullback"}
+TRANSITION_ARCHETYPES = {"attacking_fullback", "inverted_fullback"}  # spec 3.2 transition term
+ISOLATED_RADIUS = 15.0
+COVER_RADIUS = 10.0
+TRANSITION_SEC = 8.0
+LAST_LINE_FOUL_P = 0.25
+CHANNEL_WIDTH = 33.0  # wide channel: within 33u of the touchline on the defender's side
+FOLLOWUP_CROSS_W = 0.6  # cross weight added per unit of follow-up boost above 1
 
 
 def clamp(v: float, lo: float = 0.0, hi: float = 100.0) -> float:
@@ -53,23 +73,61 @@ def overall(p: Player) -> float:
     return (pr.finishing * 2 + pr.dribbling) / 3
 
 
+def foul_context(att_xy: tuple[float, float]) -> str:
+    """Last-man foul at a duel point (attacker frame): DOGSO if central and within ~25 m of
+    goal, otherwise stopping a promising attack (SPA)."""
+    x, y = att_xy
+    return "dogso" if x >= DOGSO_MIN_X and DOGSO_Y[0] <= y <= DOGSO_Y[1] else "spa"
+
+
+def card_for_foul(r: float, booked: bool, context: str) -> str | None:
+    """Card for a foul given a uniform draw ``r``. Booked players are cautious: their chance of
+    another booking is scaled by SECOND_YELLOW_FACTOR (Phase B pre-registration, item 6)."""
+    caution = SECOND_YELLOW_FACTOR if booked else 1.0
+    if context == "general":
+        red_p, yellow_p = STRAIGHT_RED_P, GENERAL_YELLOW_P
+    else:
+        red_p = DOGSO_RED_P if context == "dogso" else 0.0
+        yellow_p = SPA_YELLOW_P * (1 - red_p)
+    if r < red_p:
+        return "red"
+    if r < red_p + yellow_p * caution:
+        return "second_yellow" if booked else "yellow"
+    return None
+
+
 @dataclass
 class Scenario:
     """Scripted storyline layered on top of the simulation (demo match only)."""
 
     focus_player_id: str
     window: tuple[int, int]
-    take_on_success_mult: float = 0.25
+    script_boost: float = 0.0  # duel `script` term while the marker holds the marked slot
     take_on_freq_mult: float = 3.5
     pass_to_focus_mult: float = 4.0
     marker_id: str | None = None  # opponent the focus player keeps meeting
+    marker_slot: str | None = None  # the marker's slot; the boost only applies there
     forced_lineup: dict[str, dict[str, str]] = field(default_factory=dict)  # team -> slot -> pid
     bench_must: dict[str, list[str]] = field(default_factory=dict)
     forced_subs: list[tuple[int, str, str, str]] = field(default_factory=list)  # sec, team, out, in
+    forced_swaps: list[tuple[int, str, str, str]] = field(default_factory=list)  # sec, team, a, b
     no_auto_subs_before: dict[str, int] = field(default_factory=dict)
+    # Spec 3.4 follow-up: after a SCRIPTED take-on win in the marker's channel, the focus
+    # player's next action has its shot weight x followup_mult and gains a cross option.
+    followup_mult: float = 1.0
 
     def active(self, player_id: str | None, sec: float) -> bool:
         return player_id == self.focus_player_id and self.window[0] <= sec <= self.window[1]
+
+    def active_against(self, att_id: str, dfn_id: str, dfn_slot: str | None, sec: float) -> bool:
+        """True only for the focus player vs the marker, in the marked slot, in the window."""
+        return (
+            self.active(att_id, sec)
+            and self.marker_id is not None
+            and dfn_id == self.marker_id
+            and self.marker_slot is not None
+            and dfn_slot == self.marker_slot
+        )
 
 
 @dataclass
@@ -83,6 +141,7 @@ class Side:
     yellows: set[str] = field(default_factory=set)
     planned_subs: list[int] = field(default_factory=list)
     subbed_on: set[str] = field(default_factory=set)
+    entered_at: dict[str, float] = field(default_factory=dict)  # player_id -> clock sec
 
     @property
     def team_id(self) -> str:
@@ -188,11 +247,18 @@ class MatchSim:
         self.period = 1
         self.poss_seq = 0
         self.possession_id: str | None = None
+        self.possession_started = 0.0
         self.att: Side = home
         self.carrier: Player | None = None
         self.ball = (50.0, 50.0)
         self.force_cross = False
         self.force_header: Player | None = None
+        self.followup: str | None = None  # possession_id armed by a scripted channel win
+        self.scripted_pair_poss: str | None = None  # possession that used the scripted pairing
+        self.failed_swaps: list[tuple[int, str, str, str]] = []  # forced swaps that no-op'd
+        for side in (home, away):
+            for _, p in side.players():
+                side.entered_at[p.player_id] = 0.0  # starters are on from kickoff
         self._plan_subs()
 
     # ------------------------------------------------------------------ setup
@@ -236,6 +302,7 @@ class MatchSim:
     def new_possession(self, side: Side) -> None:
         self.poss_seq += 1
         self.possession_id = f"{self.match_id}-P{self.poss_seq:04d}"
+        self.possession_started = self.clock
         self.att = side
 
     def nearest(self, side: Side, pt: tuple[float, float], allow_gk: bool = False) -> Player:
@@ -248,6 +315,28 @@ class MatchSim:
                 best, best_d = p, d
         assert best is not None
         return best
+
+    def minutes_on(self, side: Side, player_id: str) -> float:
+        """Minutes the player has been on the pitch (starters from kickoff)."""
+        return max(0.0, self.clock - side.entered_at.get(player_id, 0.0)) / 60
+
+    def teammates_within(
+        self, side: Side, pt: tuple[float, float], radius: float, exclude: str
+    ) -> bool:
+        """Any other outfield slot of `side` within `radius` (same metric as `nearest`)."""
+        return any(
+            math.hypot(s.x * 0.85 - pt[0], s.y - pt[1]) < radius
+            for s, p in side.players()
+            if s.slot != "GK" and p.player_id != exclude
+        )
+
+    def is_last_line(self, side: Side, pt: tuple[float, float], defender_id: str) -> bool:
+        """No other outfield team-mate's slot between the ball (`side`'s frame) and goal."""
+        return not any(
+            s.x * 0.85 < pt[0]
+            for s, p in side.players()
+            if s.slot != "GK" and p.player_id != defender_id
+        )
 
     def emit(
         self,
@@ -384,6 +473,14 @@ class MatchSim:
                 if self.clock >= sec:
                     self.scenario.forced_subs.remove(f)
                     self.substitute(self.side_of(team_id), out_id, in_id)
+            for f in list(self.scenario.forced_swaps):
+                sec, team_id, a_id, b_id = f
+                if self.clock >= sec:
+                    self.scenario.forced_swaps.remove(f)
+                    if not self.swap(self.side_of(team_id), a_id, b_id):
+                        # A demo misconfiguration (or a red card) must not vanish silently.
+                        log.warning("forced swap %s did not happen: player off the pitch", f)
+                        self.failed_swaps.append(f)
         for side in (self.home, self.away):
             while side.planned_subs and self.clock >= side.planned_subs[0]:
                 side.planned_subs.pop(0)
@@ -424,11 +521,28 @@ class MatchSim:
         side.bench.remove(incoming)
         side.subs_used += 1
         side.subbed_on.add(in_id)
+        side.entered_at[in_id] = self.clock
         self.emit(
             side, "substitution", "neutral", outgoing, recipient=incoming, in_possession=False
         )
         if self.carrier and self.carrier.player_id == out_id:
             self.carrier = incoming
+
+    def swap(self, side: Side, a_id: str, b_id: str) -> bool:
+        """Exchange two on-pitch players' slots (spec 3.3). Not a substitution: it does not
+        touch `subs_used`, the bench or possession. Emits one `position_change` per mover.
+        Returns False (and emits nothing) when either player is not on the pitch."""
+        slot_a, slot_b = side.slot_of(a_id), side.slot_of(b_id)
+        if slot_a is None or slot_b is None or slot_a is slot_b:
+            return False
+        a, b = side.on_pitch[slot_a.slot], side.on_pitch[slot_b.slot]
+        side.on_pitch[slot_a.slot], side.on_pitch[slot_b.slot] = b, a
+        for mover, partner, src, dst in ((a, b, slot_a, slot_b), (b, a, slot_b, slot_a)):
+            self.emit(
+                side, "position_change", "neutral", mover, recipient=partner,
+                qualifiers={"from_slot": src.slot, "to_slot": dst.slot}, in_possession=False,
+            )  # fmt: skip
+        return True
 
     # ------------------------------------------------------------------ step
     def step(self) -> None:
@@ -438,6 +552,8 @@ class MatchSim:
         p = self.carrier
         x, y = self.ball
         self.tick(1.5, 4.5)
+        followup = self.followup is not None and self.followup == self.possession_id
+        self.followup = None  # the boost covers the next action only
 
         if self.force_header is not None:
             shooter, self.force_header = self.force_header, None
@@ -465,7 +581,13 @@ class MatchSim:
                 take_on_w *= self.scenario.take_on_freq_mult
         carry_w = 0.0 if is_gk else 0.2
         actions = [self.pass_, self.carry, self.take_on, self.shot]
-        action = self.rng.choices(actions, [1.0, carry_w, take_on_w, shot_w])[0]
+        weights = [1.0, carry_w, take_on_w, shot_w]
+        if followup and self.scenario and self.scenario.active(p.player_id, self.clock):
+            mult = self.scenario.followup_mult
+            weights[3] *= mult
+            actions.append(self.cross)
+            weights.append(FOLLOWUP_CROSS_W * max(0.0, mult - 1))
+        action = self.rng.choices(actions, weights)[0]
         action(side, opp, p)
 
     # --------------------------------------------------------------- actions
@@ -537,35 +659,91 @@ class MatchSim:
             return
         self.win_ball_by_tackle(opp, p, end)
 
+    def duel_defender(self, opp: Side, p: Player, mpt: tuple[float, float]) -> Player:
+        defender = self.nearest(opp, mpt)
+        sc = self.scenario
+        if sc and sc.marker_id and sc.active(p.player_id, self.clock):
+            if self.scripted_pair_poss == self.possession_id:
+                return defender  # follow-up in the same possession: whoever is nearest
+            self.scripted_pair_poss = self.possession_id
+            if sc.marker_slot is not None:
+                # The scripted channel: whoever holds the marked slot meets the focus player.
+                defender = opp.on_pitch.get(sc.marker_slot) or defender
+            elif opp.slot_of(sc.marker_id) is not None:
+                defender = next(q for _, q in opp.players() if q.player_id == sc.marker_id)
+        return defender
+
     def take_on(self, side: Side, opp: Side, p: Player) -> None:
         x, y = self.ball
-        defender = self.nearest(opp, mirror(x, y))
-        if self.scenario and self.scenario.active(p.player_id, self.clock):
-            marker = self.scenario.marker_id
-            if marker and opp.slot_of(marker) is not None:
-                defender = next(q for _, q in opp.players() if q.player_id == marker)
-        diff = p.priors.dribbling - defender.priors.defending
-        p_ok = 0.85 / (1 + math.exp(-diff / 12))
-        if self.scenario and self.scenario.active(p.player_id, self.clock):
-            p_ok *= self.scenario.take_on_success_mult
-        ok = self.rng.random() < p_ok
+        mpt = mirror(x, y)  # duel point in the defender's frame
+        defender = self.duel_defender(opp, p, mpt)
+        dfn_slot = opp.slot_of(defender.player_id)
+        dfn_slot_name = dfn_slot.slot if dfn_slot else None
+        script = 0.0
+        if self.scenario and self.scenario.active_against(
+            p.player_id, defender.player_id, dfn_slot_name, self.clock
+        ):
+            script = self.scenario.script_boost
+        ctx = DuelContext(
+            isolated=not self.teammates_within(opp, mpt, ISOLATED_RADIUS, defender.player_id),
+            transition=defender.archetype in TRANSITION_ARCHETYPES
+            and self.clock - self.possession_started < TRANSITION_SEC,
+            defender_on_yellow=defender.player_id in opp.yellows,
+            cover_near=self.teammates_within(opp, mpt, COVER_RADIUS, defender.player_id),
+            touch=min(y, 100 - y),
+            att_minutes_on=self.minutes_on(side, p.player_id),
+            def_minutes_on=self.minutes_on(opp, defender.player_id),
+            script=script,
+        )
+        stance = clamp(self.rng.gauss(defender.physical.stance_idx / 100, 0.15), 0.0, 1.0)
+        terms = duel_prob(p, defender, ctx, stance)
+        ok = self.rng.random() < terms.p_beat
         end = (clamp(x + self.rng.uniform(4, 10), 0, 99), clamp(y + self.rng.gauss(0, 5), 1, 99))
         self.emit(
             side, "take_on", "success" if ok else "fail", p, start=(x, y),
             end=end if ok else None, opponent=defender,
+            qualifiers={"duel": terms.as_qualifier()},
         )  # fmt: skip
-        if ok:
-            self.ball = end
+        if not ok:
+            self.win_ball_by_tackle(opp, p, (x, y), defender)
             return
-        self.win_ball_by_tackle(opp, p, (x, y), defender)
+        self.ball = end
+        if self.rng.random() < terms.p_recover:
+            # Beaten, but the defender's recovery pace wins it back straight away.
+            self.win_ball_by_tackle(opp, p, end, defender, {"recovery": True})
+        elif (
+            # "D is last line" is judged where D engaged (the duel point), not where the
+            # attacker ends up: the end point overcounted with fixed slot depths.
+            self.is_last_line(opp, mpt, defender.player_id) and self.rng.random() < LAST_LINE_FOUL_P
+        ):
+            # last man beaten: a tactical foul (SPA), or DOGSO when central and close to goal
+            self.foul(side, opp, p, offender=defender, context=foul_context(mirror(*mpt)))
+        elif script and dfn_slot is not None and self.in_channel(dfn_slot, mpt):
+            self.followup = self.possession_id  # spec 3.4: arm the follow-up cross/shot
+
+    @staticmethod
+    def in_channel(dfn_slot: Slot, mpt: tuple[float, float]) -> bool:
+        """Duel point (defender's frame) in the wide channel on the defender slot's side."""
+        if dfn_slot.y < 50:
+            return mpt[1] < CHANNEL_WIDTH
+        if dfn_slot.y > 50:
+            return mpt[1] > 100 - CHANNEL_WIDTH
+        return False
 
     def win_ball_by_tackle(
-        self, opp: Side, loser: Player, pt: tuple[float, float], tackler: Player | None = None
+        self,
+        opp: Side,
+        loser: Player,
+        pt: tuple[float, float],
+        tackler: Player | None = None,
+        qualifiers: dict | None = None,
     ) -> None:
         mpt = mirror(*pt)
         tackler = tackler or self.nearest(opp, mpt)
         self.turnover_to(opp, mpt, tackler)
-        self.emit(opp, "tackle", "success", tackler, start=mpt, opponent=loser)
+        self.emit(
+            opp, "tackle", "success", tackler, start=mpt, opponent=loser, qualifiers=qualifiers
+        )
 
     def shot(self, side: Side, opp: Side, p: Player, header: bool = False) -> None:
         x, y = self.ball
@@ -614,16 +792,18 @@ class MatchSim:
             else:
                 self.turnover_to(opp, mirror(x, y))
 
-    def foul(self, side: Side, opp: Side, victim: Player) -> None:
+    def foul(
+        self,
+        side: Side,
+        opp: Side,
+        victim: Player,
+        offender: Player | None = None,
+        context: str = "general",
+    ) -> None:
         x, y = self.ball
-        offender = self.nearest(opp, mirror(x, y))
+        offender = offender or self.nearest(opp, mirror(x, y))
         foul_ev = self.emit(opp, "foul", "neutral", offender, start=mirror(x, y), opponent=victim)
-        r = self.rng.random()
-        card = None
-        if r < 0.005:
-            card = "red"
-        elif r < 0.17:
-            card = "second_yellow" if offender.player_id in opp.yellows else "yellow"
+        card = card_for_foul(self.rng.random(), offender.player_id in opp.yellows, context)
         if card:
             self.tick(5, 15)
             card_ev = self.emit(opp, "card", "neutral", offender, qualifiers={"card": card})

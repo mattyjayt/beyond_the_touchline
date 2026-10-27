@@ -92,9 +92,36 @@ ratings**.
 | `get_player_performance` | read | `match_id, player_id, asof_sec` | Current metrics and rating, plus source event IDs |
 | `get_player_history` | read | `player_id, role, lookback` | Comparable historical baseline and sample size |
 | `get_matchup_analysis` | read | `player_id, defender_id, match_id` | Observed simulated duel data and historical context |
-| `evaluate_substitutions` | read | `match_id, team_id, asof_sec` | KEEP and eligible sub options with scores, risks and evidence |
-| `get_insight_candidates` | read | `match_id, since_sec` | Statistical triggers and confidence flags |
+| `get_duel_ledger` | read | `match_id, attacker_id, slot, team_id, asof_sec` | One attacker vs a defending slot (or defender): duels, outcomes, channel threat, rolling win %, duel points with model terms |
+| `evaluate_substitutions` | read | `match_id, team_id, asof_sec` | KEEP vs SUB / position SWAP / SUB+SWAP for the hot duel: policy dims, projected vs observed win %, pros/cons, evidence, head-to-head |
+| `get_bench_view` | read | `match_id, team_id, asof_sec` | The assistant-coach page payload (sticky alert, ledger, options, radar cards, sprint race, swap impact, briefing seed) |
+| `get_insight_candidates` | read | `match_id, since_sec` | Triggers (goals, momentum, hot duels) and confidence flags |
 | `publish_insight` | **write (only one)** | Spec §8 insight payload | Validates that the evidence IDs exist and that numbers match tool outputs, stores the row in `insights` and pushes an `insight` event on the SSE stream |
+
+### Subs advisor pipeline (assistant coach)
+
+All arithmetic is in tested services; the UI and the LLM only render and narrate. Everything is simulated.
+
+```mermaid
+flowchart LR
+  EV[events + rosters<br/>as of asof] --> MU[services/matchups.py<br/>slots · duel ledger · hot_duels · swap_impact]
+  REF[players: priors + physical] --> DUEL[sim/duel.py<br/>duel_prob duel-v2]
+  MU --> ADV[services/advisor.py<br/>KEEP / SUB / SWAP / SUB+SWAP<br/>dims L F M A G R · policy weights]
+  DUEL --> ADV
+  REF --> RACE[services/race.py<br/>0–3 s sprint curves]
+  STUDY[analysis/duel_study.py<br/>variable_importance.json] --> BENCH
+  ADV --> BENCH[services/bench.py<br/>BenchView]
+  MU --> BENCH
+  RACE --> BENCH
+  BENCH --> API["GET /api/matches/{id}/bench"]
+  BENCH --> TOOLS[get_bench_view · evaluate_substitutions · get_duel_ledger]
+  API --> UI["/match/{id}/bench (Next.js)"]
+  TOOLS --> BRIEF["POST /api/agent/ask mode=briefing<br/>Claude, else rules briefing_seed"]
+```
+
+- The hot-duel trigger fires on beaten ≥ 6 in 20 min, or win % ≤ 30% with n ≥ 8. The bench alert is sticky once fired.
+- The demo's 70' swap is scripted whatever the advisor ranks; the page reports the executed swap's rank at the alert.
+- The duel study is a methodology demo: its importance mirrors the generator.
 
 ### The tools are exposed three ways
 
@@ -105,7 +132,7 @@ flowchart TB
   TOOLS --> B["(b) MCP server /mcp<br/>streamable HTTP, Python mcp SDK"]
   TOOLS --> C["(c) in-process MCP tools<br/>Claude Agent SDK"]
   B --> CC["Claude Code (developer terminal)<br/>registered via repo-root .mcp.json<br/><b>MVP: Claude Code is the agent</b>"]
-  B -.future.-> FD["Azure AI Foundry Agent Service<br/>(MCP tool connection)"]
+  B -.future.-> FD["Microsoft Foundry Agent Service<br/>(MCP tool connection)"]
   C --> P2["provider: claude_code"]
 ```
 
@@ -116,7 +143,7 @@ flowchart TB
 - **(c) Agent SDK** handles chat questions typed in the UI when `LOCAL_AGENT_PROVIDER=claude_code`. The
   backend runs Claude through the Claude Agent SDK and registers the same tools as in-process MCP tools.
   It authenticates with the local Claude Code login or `ANTHROPIC_API_KEY`.
-- **Later**, Azure AI Foundry Agent Service uses the same `/mcp` endpoint, so the tool code doesn't
+- **Later**, Microsoft Foundry Agent Service (formerly Azure AI Foundry) uses the same `/mcp` endpoint, so the tool code doesn't
   change.
 
 ### Providers (`LOCAL_AGENT_PROVIDER` / `CLOUD_AGENT_PROVIDER`)
@@ -125,7 +152,7 @@ flowchart TB
 |---|---|---|---|
 | `rules` | local and cloud | Fills deterministic templates from trigger and tool output. It always works, so the demo is safe even with no network. | nothing |
 | `claude_code` | local | Claude answers through the Agent SDK using the shared tools. Claude Code can also push insights through `/mcp`. | Claude Code login or `ANTHROPIC_API_KEY` |
-| `foundry` | cloud | An Azure AI Foundry agent with a small Azure OpenAI model calls `/mcp` | Foundry endpoint and agent ID (`CLOUD_FOUNDRY_*`) |
+| `foundry` | cloud | A Microsoft Foundry agent (an Azure OpenAI model, or a Claude model deployed in Foundry) calls `/mcp`. **Not implemented yet**: it currently falls back to `rules` (see [azure.md §3](azure.md#3-swapping-claude-code-for-a-microsoft-foundry-agent)) | Foundry endpoint and agent ID (`CLOUD_FOUNDRY_*`) |
 
 **Implemented (MVP):** `LOCAL_AGENT_PROVIDER=claude_code` is the default. The `rules` agent always runs as well, publishing deterministic trigger insights during replay; Claude adds chat answers and richer narrative on top. If the Agent SDK fails for any reason, `/api/agent/ask` falls back to `rules` and says so in the answer.
 
@@ -135,7 +162,7 @@ flowchart TB
 |---|---|---|
 | Claude Code login (subscription) | `claude` logged in on this machine; nothing in `.env` | **Current default** for local development and demos |
 | Anthropic API key | `export ANTHROPIC_API_KEY=...` before `scripts/run.sh` (takes precedence over the login) | Shared/CI environments, usage-based billing |
-| Azure AI Foundry | `CLOUD_AGENT_PROVIDER=foundry` + `CLOUD_FOUNDRY_*` | Cloud mode (future); Foundry agent calls the same `/mcp` tools |
+| Microsoft Foundry | `CLOUD_AGENT_PROVIDER=foundry` + `CLOUD_FOUNDRY_*` | Cloud mode (future); Foundry agent calls the same `/mcp` tools |
 
 The MCP gateway is served at **`http://127.0.0.1:8000/mcp/`** (stateless streamable HTTP; trailing slash required).
 
@@ -205,12 +232,17 @@ flowchart LR
   ENV -->|scripts/run.sh --mode cloud| APP["UI → cloud API"]
 ```
 
-*This is not implemented yet. `install.sh --mode cloud` currently prints a warning and asks you to fill
-in the `CLOUD_*` values by hand.*
+*This is not implemented yet, and **Terraform is deliberately deferred** by owner decision.
+`install.sh --mode cloud` prints a warning and asks you to fill in the `CLOUD_*` values by hand. Until
+Terraform exists, follow the manual provisioning order in [azure.md §5](azure.md#5-manual-provisioning-order-until-terraform).*
 
 ---
 
 ## 5. Local → Azure mapping
+
+> The complete swap list — every service, the code change each needs, the Claude Code → Microsoft
+> Foundry agent swap, `CLOUD_*` mapping and a manual provisioning order — is in **[azure.md](azure.md)**.
+> This section keeps the cost and free-tier view.
 
 > Free-tier figures are **as of Oct 2026. Verify them before provisioning**, because Microsoft changes
 > limits. The sources are listed below the table.
@@ -223,7 +255,7 @@ in the `CLOUD_*` values by hand.*
 | Event streaming at scale | In-process replay engine | **Azure Event Hubs** (+ Stream Analytics) | **Not free**: Basic tier is billed. Future work only. |
 | Relational DB | SQLite (`backend/data/inside_the_game.db`) | **Azure SQL Database, free offer** | 100,000 vCore-s, 32 GB data and 32 GB backup per DB per month, with no expiry, up to 10 DBs per subscription. Choose **auto-pause at limit** to avoid charges, and check vCore and storage settings when creating it. Alternative: Postgres Flexible Server B1ms (12 months free on a new account). |
 | Files / synthetic datasets | `backend/data/*.json` | **Azure Blob Storage** | 5 GB LRS free for 12 months on a new account. Otherwise it costs a few cents at this scale. |
-| Agent | `rules` / Claude Code via `/mcp` / Agent SDK | **Azure AI Foundry Agent Service** + Azure OpenAI small model | Pay-as-you-go, with no meaningful free tier. Keep `rules` as a fallback so the demo never depends on model availability. |
+| Agent | `rules` / Claude Code via `/mcp` / Agent SDK | **Microsoft Foundry Agent Service** + an Azure OpenAI small model, or a Claude model deployed in Foundry | Pay-as-you-go, with no meaningful free tier. Keep `rules` as a fallback so the demo never depends on model availability. |
 | Secrets | `.env` | **Azure Key Vault** | Charged per operation, negligible at MVP scale. ACA reads secrets via managed identity. |
 | Observability | stdout logs | **Application Insights / Azure Monitor** | Free monthly ingestion allowance (about 5 GB). Set a daily cap. |
 | Container images | none (runs from source) | **GitHub Container Registry** | Free for public images. Avoids ACR Basic, which has a monthly charge. |
@@ -248,7 +280,7 @@ flowchart LR
     SQL[("Azure SQL<br/>free offer")]
     BLOB[["Blob Storage"]]
     WPS["Web PubSub Free<br/>(optional)"]
-    FDY["AI Foundry Agent Service"]
+    FDY["Microsoft Foundry<br/>Agent Service"]
     KV["Key Vault"]
     AI["App Insights"]
   end
@@ -315,7 +347,7 @@ inside_the_game/
 │   └── src/{app, components, lib}
 ├── docs/                   # spec PDF, architecture.md, schema.md
 ├── scripts/                # install.sh, run.sh, _common.sh
-└── infra/                  # future: terraform + provision.sh
+└── infra/                  # deferred: terraform + provision.sh (see azure.md)
 ```
 
 ---
@@ -330,4 +362,5 @@ inside_the_game/
 - Calibrated xG/xA/xT, counterfactual substitution rollouts and confidence intervals. MVP xG, if shown,
   is labelled illustrative.
 - Broadcaster surfaces (captions, recap scripts) and multilingual output.
-- Terraform provisioning and the automatic writing of the `CLOUD_*` section (designed in §4, not built).
+- Terraform provisioning and the automatic writing of the `CLOUD_*` section (designed in §4, **deferred by owner decision**; manual steps and the full service list are in [azure.md](azure.md)).
+- Native Windows scripts (today: WSL2; see DEMO.md "Running on Windows").

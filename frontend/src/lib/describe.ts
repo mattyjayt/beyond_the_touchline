@@ -12,7 +12,8 @@ export const shortName = (players: Players, id: string | null | undefined) => {
 /** Events worth showing in the condensed feed. */
 export function isNotable(ev: MatchEvent): boolean {
   switch (ev.event_type) {
-    case "shot": case "card": case "substitution": case "period_start": case "period_end":
+    case "shot": case "card": case "substitution": case "position_change":
+    case "period_start": case "period_end":
     case "take_on": case "foul":
       return true;
     case "restart":
@@ -56,6 +57,10 @@ export function describe(ev: MatchEvent, players: Players): string {
       return `${c === "yellow" ? "Yellow" : c === "red" ? "Red" : "Second yellow"} card — ${who}`;
     }
     case "substitution": return `${to} on for ${who}`;
+    case "position_change": {
+      const slot = String(ev.qualifiers.to_slot ?? "a new role");
+      return ev.recipient_id ? `${who} moves to ${slot} (swaps with ${to})` : `${who} moves to ${slot}`;
+    }
   }
 }
 
@@ -63,6 +68,7 @@ export function eventIcon(ev: MatchEvent): string {
   if (ev.event_type === "shot" && ev.outcome === "goal") return "⚽";
   if (ev.event_type === "card") return ev.qualifiers.card === "yellow" ? "🟨" : "🟥";
   if (ev.event_type === "substitution") return "⇄";
+  if (ev.event_type === "position_change") return "↔";
   if (ev.event_type === "shot") return "◎";
   if (ev.event_type === "take_on") return ev.outcome === "success" ? "↗" : "✕";
   if (ev.event_type.startsWith("period")) return "⏱";

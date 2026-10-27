@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.advisor import Move, OptionDims
 from app.models.reference import RoleGroup
 
 
@@ -24,6 +25,7 @@ class Rating(BaseModel):
     role_group: RoleGroup
     contributions: list[RatingContribution] = []
     low_confidence: bool = False
+    out_of_position: bool = False  # slot position is neither primary nor secondary (spec 3.3)
     methodology_version: str
 
 
@@ -53,7 +55,8 @@ class Recommendation(BaseModel):
     team_id: str
     asof_sec: int
     option_rank: int = Field(ge=1)
-    option_type: Literal["keep", "substitution"]
+    option_type: Literal["keep", "substitution", "position_swap", "sub_and_swap"]
+    # the player leaving / entering the hot slot (for a swap both stay on the pitch)
     outgoing_player_id: str | None = None
     incoming_player_id: str | None = None
     eligibility_status: Literal["eligible", "ineligible"] = "eligible"
@@ -65,5 +68,15 @@ class Recommendation(BaseModel):
     pros: list[str]
     cons: list[str]
     supporting_event_ids: list[str] = []
+    moves: list[Move] = []
+    dims: OptionDims | None = None
+    score: float | None = None  # policy-weighted sum of dims; KEEP = 0
+    projected_win_pct: float | None = None  # hot-slot defender vs the tormentor, duel model
+    observed_win_pct: float | None = None  # same pairing, this match so far
+    n_observed: int = 0
+    blended_win_pct: float | None = None  # model prior (k=6 duels) + observed record
+    blended_ci: list[float] | None = None  # 90% Beta interval on the blended estimate
+    tied: bool = False  # within TIE_BAND of a neighbouring option's score
+    out_of_position: bool = False
     model_version: str
     synthetic: Literal[True] = True

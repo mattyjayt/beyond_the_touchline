@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AgentPanel } from "@/components/AgentPanel";
 import { EventFeed } from "@/components/EventFeed";
@@ -34,6 +35,8 @@ export function MatchCenter() {
     [stream.events],
   );
 
+  const hasAlert = stream.insights.some((i) => i.kind === "tactical_alert");
+
   if (error) {
     return (
       <div className="m-auto max-w-md p-8 text-center">
@@ -51,6 +54,11 @@ export function MatchCenter() {
         <h1 className="text-base font-semibold tracking-tight">Inside the Game</h1>
         <span className="rounded-md border border-[var(--warn)] px-2 py-0.5 text-[10px] font-bold tracking-widest text-[var(--warn)]">SIMULATED</span>
         <span className="text-xs text-[var(--muted)]">{detail.match.match_id} · synthetic events · not real match data</span>
+        <Link href={`/match/${detail.match.match_id}/bench`}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs hover:border-[var(--muted)]">
+          {hasAlert && <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--loss)]" />}
+          Bench · Assistant coach →
+        </Link>
         <span className="ml-auto flex items-center gap-2 text-xs text-[var(--muted)]">
           <span className={`h-2 w-2 rounded-full ${stream.connected ? "bg-[var(--live)]" : "bg-[var(--warn)]"}`} />
           {stream.connected ? "stream connected" : "connecting…"} · mode <span className="font-mono">{APP_MODE}</span>

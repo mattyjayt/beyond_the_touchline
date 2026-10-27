@@ -5,11 +5,15 @@ write and is grounding-checked. The LLM never computes or alters match facts.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
-from app.models import ROLE_GROUP, Insight, MatchEvent, Recommendation
+from app.models import Insight, MatchEvent
 from app.replay import ReplayManager
+from app.services.advisor import POLICY_WEIGHTS
+from app.services.bench import build_bench_view
+from app.services.matchups import HOT_WINDOW_SEC, duel_ledger, first_trigger, window_label
 from app.services.performance import (
     METHODOLOGY_VERSION,
     live_rating,
@@ -18,8 +22,10 @@ from app.services.performance import (
 )
 from app.store import Store
 
-RECOMMENDER_VERSION = "subs-v0"
-STRUGGLE_WINDOW_SEC = 20 * 60
+CAVEAT = (
+    "Scores are policy-weighted model outputs from synthetic priors and an uncalibrated duel "
+    "model, not causal effects."
+)
 
 
 @dataclass
@@ -46,6 +52,11 @@ def _asof(match_id: str, asof_sec: int | None) -> int:
     """Agents may look back but never past the live replay clock (no future leakage)."""
     clock = int(ctx().replays.get(match_id).clock)
     return clock if asof_sec is None else min(asof_sec, clock)
+
+
+def resolve_asof(match_id: str, asof_sec: int | None) -> int:
+    """Public form of the clock clamp, for callers that must pass a concrete second."""
+    return _asof(match_id, asof_sec)
 
 
 def _events(match_id: str, asof: float) -> list[MatchEvent]:
@@ -203,144 +214,88 @@ async def get_matchup_analysis(
     }
 
 
-def _struggles(match_id: str, team_id: str | None, asof: int) -> list[dict[str, Any]]:
-    """Players with >=5 take-ons in the window and <=30% success."""
-    evs = [e for e in _events(match_id, asof) if e.event_sec > asof - STRUGGLE_WINDOW_SEC]
-    by_player: dict[str, list[MatchEvent]] = {}
-    for e in evs:
-        if e.event_type == "take_on" and (team_id is None or e.team_id == team_id):
-            by_player.setdefault(e.player_id or "", []).append(e)
-    out = []
-    for pid, tks in by_player.items():
-        won = sum(e.outcome == "success" for e in tks)
-        if len(tks) >= 5 and won / len(tks) <= 0.3:
-            opps = [e.opponent_id for e in tks]
-            marker = max(set(opps), key=opps.count)
-            out.append({"player_id": pid, "team_id": tks[0].team_id, "attempts": len(tks),
-                        "won": won, "main_opponent": marker,
-                        "failed_event_ids": [e.event_id for e in tks if e.outcome == "fail"]})  # fmt: skip
-    return out
+async def get_duel_ledger(
+    match_id: str, attacker_id: str, slot: str, team_id: str, asof_sec: int | None = None
+) -> dict[str, Any]:
+    """Attacker vs a defending slot (follows whoever holds it) or a defender id: duels,
+    outcomes, channel threat, rolling win % and duel points with their stored model terms."""
+    store = ctx().store
+    asof = _asof(match_id, asof_sec)
+    led = duel_ledger(store.events(match_id), attacker_id, slot, team_id,
+                      store.rosters(match_id), asof)  # fmt: skip
+    return {"asof_sec": asof, "attacker": _name(attacker_id),
+            "defenders": [_name(d) for d in led.defender_ids], **led.model_dump()}  # fmt: skip
+
+
+async def get_bench_view(
+    match_id: str, team_id: str, asof_sec: int | None = None
+) -> dict[str, Any]:
+    """Everything on the assistant-coach page: sticky hot-duel alert, ledger, ranked options,
+    radar cards, sprint race, swap impact (after a position change), briefing seed."""
+    asof = _asof(match_id, asof_sec)
+    # CPU-bound: run off the event loop so the replay clock and SSE keep ticking (C10)
+    view = await asyncio.to_thread(
+        build_bench_view, ctx().store, ctx().replays, match_id, team_id, asof
+    )
+    return view.model_dump()
 
 
 async def evaluate_substitutions(
     match_id: str, team_id: str, asof_sec: int | None = None
 ) -> dict[str, Any]:
-    """KEEP plus eligible substitution options with bounded scores, pros/cons and evidence."""
-    store = ctx().store
+    """KEEP vs SUB / position SWAP / SUB+SWAP for the team's hottest losing duel, scored on six
+    bounded policy dimensions with pros/cons quoting the numbers and evidence ids."""
     asof = _asof(match_id, asof_sec)
-    state = await get_match_state(match_id, asof)
-    match = store.matches[match_id]
-    side = "home" if team_id == match.home_team_id else "away"
-    goal_diff = state[side]["score"] - state["away" if side == "home" else "home"]["score"]
-    subs_left = 5 - state["subs_used"].get(team_id, 0)
-
-    struggles = _struggles(match_id, team_id, asof)
-    if struggles:
-        problem = max(struggles, key=lambda s: s["attempts"] - s["won"])
-        out_id, evidence = problem["player_id"], problem["failed_event_ids"]
-        diagnosis = (f"{_name(out_id)}: {problem['won']}/{problem['attempts']} take-ons in the "
-                     f"last 20 min, mostly against {_name(problem['main_opponent'])}")  # fmt: skip
-    else:
-        mine = [p for p in state["on_pitch"] if p["team_id"] == team_id and p["slot"] != "GK"]
-        worst = min(mine, key=lambda p: p["live_rating"])
-        out_id, evidence = worst["player_id"], []
-        diagnosis = f"{worst['name']} has the lowest live rating ({worst['live_rating']})"
-
-    outgoing = store.players[out_id]
-    perf = await get_player_performance(match_id, out_id, asof)
-    hist = await get_player_history(out_id)
-    form = perf["live_rating"] / (hist["expected_rating"] or perf["live_rating"] or 6.0)
-    slot = next((p["slot"] for p in state["on_pitch"] if p["player_id"] == out_id), None)
-    slot_pos = outgoing.primary_position
-
-    attack_w = 1.5 if goal_diff < 0 else 0.7 if goal_diff > 0 else 1.0
-    pri = outgoing.priors
-    cur_attack = (pri.dribbling + pri.finishing) / 2 * form
-
-    def fit(pos: str, secondary: list[str]) -> float:
-        if pos == slot_pos:
-            return 1.0
-        if slot_pos in secondary:
-            return 0.8
-        return 0.5 if ROLE_GROUP[pos] == ROLE_GROUP[slot_pos] else 0.0
-
-    options = []
-    for b in state["available_bench"] if subs_left > 0 else []:
-        if b["team_id"] != team_id:
-            continue
-        cand = store.players[b["player_id"]]
-        f = fit(cand.primary_position, cand.secondary_positions)
-        if f < 0.5:
-            continue
-        cp = cand.priors
-        attack = round(((cp.dribbling + cp.finishing) / 2 * 1.03 - cur_attack) / 100, 3)
-        control = round((cp.passing - pri.passing) / 100, 3)
-        risk = round((pri.defending - cp.defending) / 100, 3)
-        score = attack_w * attack + 0.5 * control - 0.5 * risk + 0.05 * f
-        options.append((score, cand, f, attack, control, risk))
-    options.sort(key=lambda o: o[0], reverse=True)
-
-    n_evidence = len(evidence)
-    confidence = "medium" if n_evidence >= 4 and hist["sample_size"] >= 3 else "low"
-    recs: list[Recommendation] = []
-    keep_score = 0.02 if goal_diff >= 0 else -0.02
-    ranked = sorted(
-        [("keep", keep_score, None, 1.0, 0.0, 0.0, 0.0)]
-        + [("substitution", s, c, f, a, ctl, r) for s, c, f, a, ctl, r in options[:3]],
-        key=lambda o: o[1],
-        reverse=True,
+    # One source of truth with the bench page: the same sticky alert, state and options.
+    view = await asyncio.to_thread(
+        build_bench_view, ctx().store, ctx().replays, match_id, team_id, asof
     )
-    for rank, (kind, _, cand, f, a, ctl, r) in enumerate(ranked, start=1):
-        rec_id = f"REC-{match_id}-{asof}-{rank}"
-        if kind == "keep":
-            pros = [
-                "Keeps defensive structure and continuity",
-                f"Preserves {subs_left} substitution(s)",
+    h = view.alert
+    subs_used = sum(
+        1
+        for e in _events(match_id, asof)
+        if e.event_type == "substitution" and e.team_id == team_id
+    )
+    if h is None:
+        diagnosis = "No hot duel: no defender has been beaten repeatedly yet"
+    else:
+        state = {"active": "firing now", "cooling": "not firing now", "monitoring":
+                 "new holder, monitoring", "none": ""}[view.alert_state]  # fmt: skip
+        diagnosis = (
+            f"Alert since {(h.first_fired_sec or 0) // 60}' ({state}): {_name(h.attacker_id)} vs "
+            f"{_name(h.defender_id)} ({h.defender_slot}), beaten in {h.beaten_20m} possession(s) "
+            f"in the last {window_label()} (defender win "
+            f"{'n/a' if h.win_pct_20m is None else f'{h.win_pct_20m:.0%}'}, n={h.n_20m})"
+        )
+    head_to_head = {}
+    if h is not None:
+        movers = {r.incoming_player_id for r in view.options if r.incoming_player_id}
+        for pid in movers | {h.defender_id}:
+            prior = (await get_matchup_analysis(match_id, h.attacker_id, pid, asof))[
+                "prior_meetings"
             ]
-            cons = [diagnosis]
-            recs.append(Recommendation(
-                rec_id=rec_id, match_id=match_id, team_id=team_id, asof_sec=asof,
-                option_rank=rank, option_type="keep", attack_delta_estimate=0,
-                control_delta_estimate=0, defensive_risk_delta=0, tactical_fit_score=1.0,
-                confidence=confidence, pros=pros, cons=cons,
-                supporting_event_ids=evidence[:6], model_version=RECOMMENDER_VERSION,
-            ))  # fmt: skip
-        else:
-            pros = [f"Fresh {cand.archetype.replace('_', ' ')} for the {slot or slot_pos} role"]
-            if a > 0:
-                pros.append(f"Higher simulated attacking profile (+{a:.2f})")
-            if ctl > 0:
-                pros.append("Better ball retention profile")
-            cons = []
-            if r > 0:
-                cons.append(f"Less defensive cover (risk +{r:.2f})")
-            if f < 1:
-                cons.append(f"Not a natural {slot_pos} (fit {f:.1f})")
-            cons.append("Uses a substitution window")
-            recs.append(Recommendation(
-                rec_id=rec_id, match_id=match_id, team_id=team_id, asof_sec=asof,
-                option_rank=rank, option_type="substitution", outgoing_player_id=out_id,
-                incoming_player_id=cand.player_id, attack_delta_estimate=a,
-                control_delta_estimate=ctl, defensive_risk_delta=r, tactical_fit_score=f,
-                confidence=confidence, pros=pros, cons=cons,
-                supporting_event_ids=evidence[:6], model_version=RECOMMENDER_VERSION,
-            ))  # fmt: skip
+            head_to_head[pid] = {"name": _name(pid), "prior_meetings": prior,
+                                 "n": sum(m["take_ons"] for m in prior)}  # fmt: skip
     return {
-        "match_id": match_id,
-        "team_id": team_id,
-        "asof_sec": asof,
-        "game_state": {"goal_difference": goal_diff, "subs_remaining": subs_left},
+        "match_id": match_id, "team_id": team_id, "asof_sec": asof,
+        "game_state": {"subs_remaining": 5 - subs_used, "minute": view.minute,
+                       "score": view.score},
         "diagnosis": diagnosis,
-        "outgoing_candidate": {"player_id": out_id, "name": outgoing.display_name,
-                               "live_rating": perf["live_rating"],
-                               "expected_rating": hist["expected_rating"],
-                               "baseline_sample_size": hist["sample_size"]},
+        "alert_state": view.alert_state,
+        "hot_duel": None if h is None else h.model_dump() | {
+            "attacker": _name(h.attacker_id), "defender": _name(h.defender_id)},
+        "ledger": None if view.ledger is None else view.ledger.model_dump(),
+        "threat": None if view.threat is None else view.threat.model_dump(),
+        "head_to_head": head_to_head,
+        "policy_weights": POLICY_WEIGHTS,
         "options": [
             r.model_dump() | {"incoming_name": _name(r.incoming_player_id),
-                              "outgoing_name": _name(r.outgoing_player_id)}
-            for r in recs
+                              "outgoing_name": _name(r.outgoing_player_id),
+                              "moves_named": [m.model_dump() | {"name": _name(m.player_id)}
+                                              for m in r.moves]}
+            for r in view.options
         ],
-        "caveat": "Deltas are hypothetical model outputs from synthetic priors, not causal effects.",
+        "caveat": CAVEAT,
         "synthetic": True,
     }  # fmt: skip
 
@@ -348,7 +303,7 @@ async def evaluate_substitutions(
 async def get_insight_candidates(
     match_id: str, since_sec: int = 0, asof_sec: int | None = None
 ) -> dict[str, Any]:
-    """Deterministic triggers since `since_sec`: goals, momentum swings, player struggles."""
+    """Deterministic triggers since `since_sec`: goals, momentum swings, hot (losing) duels."""
     store = ctx().store
     asof = _asof(match_id, asof_sec)
     match = store.matches[match_id]
@@ -372,19 +327,29 @@ async def get_insight_candidates(
                           "asof_sec": asof, "facts": {"team_id": team, "momentum": state.momentum},
                           "evidence_event_ids": [e.event_id for e in recent[-6:]],
                           "confidence": "medium"})  # fmt: skip
-    for s in _struggles(match_id, None, asof):
-        cands.append({"kind": "player_form", "key": f"struggle-{s['player_id']}", "asof_sec": asof,
-                      "facts": {**s, "player": _name(s["player_id"]),
-                                "opponent": _name(s["main_opponent"])},
-                      "evidence_event_ids": s["failed_event_ids"][-6:],
-                      "confidence": "medium" if s["attempts"] >= 8 else "low"})  # fmt: skip
-        team_score = state.home.score if s["team_id"] == match.home_team_id else state.away.score
-        opp_score = state.away.score if s["team_id"] == match.home_team_id else state.home.score
-        if asof >= 3600 and team_score <= opp_score:
-            cands.append({"kind": "substitution_opportunity", "key": f"sub-{s['player_id']}",
-                          "asof_sec": asof, "facts": {**s, "player": _name(s["player_id"])},
-                          "evidence_event_ids": s["failed_event_ids"][-6:],
-                          "confidence": "medium"})  # fmt: skip
+    rosters = store.rosters(match_id)
+    events = _events(match_id, asof)
+    for team in (match.home_team_id, match.away_team_id):
+        fired_sec, at_fire = first_trigger(events, rosters, team, asof)
+        for h in at_fire[:1]:  # the alert's pair, with its stats at the moment it fired
+            fired = fired_sec or asof
+            if fired <= since_sec:
+                continue  # already raised in an earlier check
+            led = duel_ledger(events, h.attacker_id, h.defender_slot, team, rosters, fired,
+                              since=max(0, fired - HOT_WINDOW_SEC))  # fmt: skip
+            facts = {**h.model_dump(), "attacker": _name(h.attacker_id),
+                     "defender": _name(h.defender_id)}  # fmt: skip
+            evidence = [p.event_id for p in led.points][-6:]
+            cands.append({"kind": "tactical_alert", "key": f"hot-{team}-{h.defender_slot}-"
+                          f"{h.attacker_id}-{fired}", "asof_sec": fired, "facts": facts,
+                          "evidence_event_ids": evidence, "confidence": led.confidence})  # fmt: skip
+            score = {match.home_team_id: state.home.score, match.away_team_id: state.away.score}
+            other = match.away_team_id if team == match.home_team_id else match.home_team_id
+            if score[team] <= score[other]:
+                cands.append({"kind": "substitution_opportunity",
+                              "key": f"sub-{team}-{h.defender_slot}-{fired}", "asof_sec": asof,
+                              "facts": facts, "evidence_event_ids": evidence,
+                              "confidence": led.confidence})  # fmt: skip
     return {"match_id": match_id, "since_sec": since_sec, "asof_sec": asof, "candidates": cands}
 
 

@@ -71,6 +71,8 @@ def compute_state(
             subs_used[e.team_id] += 1
         elif e.event_type == "card" and e.qualifiers.get("card") in ("red", "second_yellow"):
             slot_of.pop(e.player_id or "", None)
+        elif e.event_type == "position_change" and e.player_id in slot_of:
+            slot_of[e.player_id] = e.qualifiers.get("to_slot")
 
     last_sec = events[-1].event_sec if events else 0
     if asof_sec <= 0:

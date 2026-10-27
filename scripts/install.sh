@@ -53,6 +53,9 @@ if [ -f "$BACKEND_DIR/app/sim/generate.py" ]; then
   log "generating synthetic match data (seed $SIM_SEED)"
   (cd "$BACKEND_DIR" && uv run python -m app.sim.generate)
   ok "synthetic data ready in ${LOCAL_DATA_DIR:-backend/data}"
+  log "running the duel study (variable importance, methodology demo)"
+  (cd "$BACKEND_DIR" && uv run python -m app.analysis.duel_study --n 40000)
+  ok "variable importance written"
 fi
 
 if [ "$APP_MODE" = "cloud" ]; then

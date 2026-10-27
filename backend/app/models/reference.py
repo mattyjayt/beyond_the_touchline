@@ -30,6 +30,38 @@ class PlayerPriors(BaseModel):
     goalkeeping: int = Field(ge=0, le=100)
 
 
+def _clamp_idx(value: float) -> float:
+    return round(max(0.0, min(100.0, value)), 1)
+
+
+class PhysicalProfile(BaseModel):
+    """Synthetic physical attributes. Generated, never real measurements."""
+
+    top_speed_kmh: float = Field(ge=20, le=45)
+    accel_ms2: float = Field(ge=3, le=10)
+    agility_idx: int = Field(ge=0, le=100)
+    stamina_idx: int = Field(ge=0, le=100)
+    stance_idx: int = Field(ge=0, le=100)
+    height_cm: int = Field(ge=140, le=220)
+
+    @property
+    def speed_idx(self) -> float:
+        """Top speed mapped linearly 29-37 km/h onto 0-100, clamped."""
+        return _clamp_idx((self.top_speed_kmh - 29.0) / (37.0 - 29.0) * 100)
+
+    @property
+    def accel_idx(self) -> float:
+        """Acceleration mapped linearly 6.0-7.9 m/s2 onto 0-100, clamped."""
+        return _clamp_idx((self.accel_ms2 - 6.0) / (7.9 - 6.0) * 100)
+
+    @property
+    def time_0_5m_s(self) -> float:
+        """Time to cover 5 m from a standing start, reaction included (the sprint model)."""
+        from app.sim.sprint import time_to  # pure maths; local import keeps models import-light
+
+        return round(time_to(5.0, self.top_speed_kmh, self.accel_ms2), 2)
+
+
 class Team(BaseModel):
     team_id: str
     code: str
@@ -53,6 +85,7 @@ class Player(BaseModel):
     foot: Foot = "right"
     archetype: str
     priors: PlayerPriors | None = None
+    physical: PhysicalProfile | None = None
 
     @property
     def role_group(self) -> RoleGroup:

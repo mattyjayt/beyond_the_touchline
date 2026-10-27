@@ -1,6 +1,9 @@
 """Generator gate: spec §9 validation checks. Returns a list of human-readable errors."""
 
+from collections import Counter
+
 from app.models import Match, MatchEvent, RosterEntry
+from app.sim.formations import formation_slots
 
 HALF_SEC = 2700
 ON_BALL = {"pass", "carry", "take_on", "shot", "restart", "interception", "tackle"}
@@ -12,7 +15,15 @@ def validate_match(match: Match, rosters: list[RosterEntry], events: list[MatchE
     teams = {match.home_team_id, match.away_team_id}
     roster = {r.player_id: r for r in rosters if r.match_id == match.match_id}
     on_pitch = {pid for pid, r in roster.items() if r.roster_status == "starter"}
+    # player_id -> formation slot for everyone on the pitch (subs and swaps move it)
+    slot = {pid: r.formation_slot for pid, r in roster.items() if r.roster_status == "starter"}
+    formation_of = {
+        match.home_team_id: match.home_formation,
+        match.away_team_id: match.away_formation,
+    }
+    slot_names = {team: {s.slot for s in formation_slots(f)[1]} for team, f in formation_of.items()}
     used_bench: set[str] = set()
+    reported_clashes: set[tuple[str, str]] = set()  # report each slot clash once
     subs = dict.fromkeys(teams, 0)
     goals = dict.fromkeys(teams, 0)
     possession_team: dict[str, str] = {}
@@ -30,7 +41,7 @@ def validate_match(match: Match, rosters: list[RosterEntry], events: list[MatchE
         if len(starters) != 11:
             errors.append(f"{team}: {len(starters)} starters (expected 11)")
 
-    for ev in events:
+    for i, ev in enumerate(events):
         tag = ev.event_id
         if ev.event_id in seen_ids:
             errors.append(f"{tag}: duplicate event_id")
@@ -88,11 +99,32 @@ def validate_match(match: Match, rosters: list[RosterEntry], events: list[MatchE
             if subs[ev.team_id] > MAX_SUBS:
                 errors.append(f"{tag}: more than {MAX_SUBS} substitutions")
             on_pitch.discard(out_id)
+            out_slot = slot.pop(out_id or "", None)
             if in_id:
                 on_pitch.add(in_id)
                 used_bench.add(in_id)
+                slot[in_id] = out_slot
         if ev.event_type == "card" and ev.qualifiers.get("card") in ("red", "second_yellow"):
             on_pitch.discard(ev.player_id)
+            slot.pop(ev.player_id or "", None)
+
+        # position changes (spec 3.3): never a sub, never touch possession
+        if ev.event_type == "position_change":
+            src, dst = ev.qualifiers.get("from_slot"), ev.qualifiers.get("to_slot")
+            partner = roster.get(ev.recipient_id or "")
+            if ev.recipient_id and ev.recipient_id not in on_pitch:
+                errors.append(f"{tag}: partner {ev.recipient_id} not on the pitch")
+            elif partner and partner.team_id != ev.team_id:
+                errors.append(f"{tag}: partner {ev.recipient_id} is not a teammate")
+            if ev.player_id in on_pitch and slot.get(ev.player_id) != src:
+                errors.append(
+                    f"{tag}: from_slot {src} is not {ev.player_id}'s slot "
+                    f"({slot.get(ev.player_id)})"
+                )
+            if dst not in slot_names.get(ev.team_id, set()):
+                errors.append(f"{tag}: to_slot {dst} not in {formation_of.get(ev.team_id)}")
+            if ev.player_id in on_pitch:
+                slot[ev.player_id] = dst
 
         # possessions
         if ev.event_type in ON_BALL:
@@ -105,6 +137,17 @@ def validate_match(match: Match, rosters: list[RosterEntry], events: list[MatchE
 
         if ev.event_type == "shot" and ev.outcome == "goal":
             goals[ev.team_id] += 1
+
+        # one player per slot once every event at this second has applied
+        nxt = events[i + 1] if i + 1 < len(events) else None
+        if nxt is None or nxt.event_sec != ev.event_sec:
+            taken = Counter(
+                (roster[pid].team_id, s) for pid, s in slot.items() if s and pid in roster
+            )
+            clashes = {k for k, n in taken.items() if n > 1}
+            for team, s in sorted(clashes - reported_clashes):
+                errors.append(f"{tag}: slot map not one-to-one ({team} {s} x{taken[team, s]})")
+            reported_clashes = clashes
         prev = ev
 
     if (
