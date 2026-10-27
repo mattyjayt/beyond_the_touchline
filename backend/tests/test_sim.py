@@ -281,3 +281,26 @@ def test_api_serves_demo_and_replay_controls(app_client):
     assert (
         app_client.post(f"/api/matches/{mid}/replay", json={"action": "bogus"}).status_code == 422
     )
+
+
+def test_follow_up_take_on_in_the_same_possession_meets_the_nearest_defender(reference):
+    """Phase B item 9: the scripted marker pairing applies once per possession."""
+    import random as _random
+    from datetime import UTC, datetime
+
+    from app.sim.engine import MatchSim, Scenario, pick_lineup
+
+    teams, squads = reference[0], reference[1]
+    sc = Scenario(focus_player_id=TORMENTOR, window=(0, 5400), marker_id=VICTIM,
+                  marker_slot="RB", forced_lineup={"T-LIV": {"RB": VICTIM}, "T-MCI": {"LW": TORMENTOR}})  # fmt: skip
+    rng = _random.Random("follow-up")
+    home = pick_lineup(teams["T-LIV"], squads["T-LIV"], rng, 0.0, sc.forced_lineup["T-LIV"])
+    away = pick_lineup(teams["T-MCI"], squads["T-MCI"], rng, 0.0, sc.forced_lineup["T-MCI"])
+    sim = MatchSim("SIM-T", "demo", home, away, 1, datetime(2026, 9, 1, tzinfo=UTC), sc)
+    doku = next(q for _, q in sim.away.players() if q.player_id == TORMENTOR)
+    far = (80.0, 50.0)  # central: Frimpong is not the nearest defender here
+    sim.clock, sim.possession_id = 3600, "SIM-T-P0001"
+    assert sim.duel_defender(sim.home, doku, far).player_id == VICTIM  # first: scripted
+    assert sim.duel_defender(sim.home, doku, far) == sim.nearest(sim.home, far)  # follow-up
+    sim.possession_id = "SIM-T-P0002"
+    assert sim.duel_defender(sim.home, doku, far).player_id == VICTIM  # new possession

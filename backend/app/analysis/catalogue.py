@@ -58,7 +58,7 @@ def research_rows(path: Path = REPORT) -> dict[int, dict[str, str]]:
     """Report row number -> {section, name, unit, range, tag, source} from its tables."""
     rows: dict[int, dict[str, str]] = {}
     section = ""
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if m := re.match(r"### ([A-H])\. ", line):
             section = m[1]
             continue
@@ -217,7 +217,7 @@ def render_markdown() -> str:
 
 
 def main() -> None:
-    DOC.write_text(render_markdown())
+    DOC.write_text(render_markdown(), encoding="utf-8")
     print(f"wrote {DOC.relative_to(ROOT)} ({len(VARIABLES)} variables)")
 
 

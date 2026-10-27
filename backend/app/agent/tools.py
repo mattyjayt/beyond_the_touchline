@@ -11,9 +11,9 @@ from typing import Any
 
 from app.models import Insight, MatchEvent
 from app.replay import ReplayManager
-from app.services.advisor import POLICY_WEIGHTS, advisor_input, evaluate, keep_only
+from app.services.advisor import POLICY_WEIGHTS
 from app.services.bench import build_bench_view
-from app.services.matchups import duel_ledger, hot_duels
+from app.services.matchups import HOT_WINDOW_SEC, duel_ledger, first_trigger, window_label
 from app.services.performance import (
     METHODOLOGY_VERSION,
     live_rating,
@@ -245,41 +245,47 @@ async def evaluate_substitutions(
 ) -> dict[str, Any]:
     """KEEP vs SUB / position SWAP / SUB+SWAP for the team's hottest losing duel, scored on six
     bounded policy dimensions with pros/cons quoting the numbers and evidence ids."""
-    store = ctx().store
     asof = _asof(match_id, asof_sec)
-    inp = await asyncio.to_thread(advisor_input, store, match_id, team_id, asof)
-    events = _events(match_id, asof)
-    subs_used = sum(1 for e in events if e.event_type == "substitution" and e.team_id == team_id)
-    if inp is None:
-        keep = keep_only(match_id, team_id, asof)
-        return {
-            "match_id": match_id, "team_id": team_id, "asof_sec": asof,
-            "game_state": {"subs_remaining": 5 - subs_used},
-            "diagnosis": "No hot duel: no defender is being beaten repeatedly",
-            "hot_duel": None, "ledger": None, "head_to_head": {},
-            "options": [keep.model_dump() | {"incoming_name": None, "outgoing_name": None}],
-            "caveat": CAVEAT, "synthetic": True,
-        }  # fmt: skip
-    recs = await asyncio.to_thread(evaluate, inp)
-    h = inp.hot
-    diagnosis = (
-        f"{_name(h.attacker_id)} has beaten {_name(h.defender_id)} ({h.defender_slot}) "
-        f"{h.beaten_20m} times in the last 20 min (defender win "
-        f"{'n/a' if h.win_pct_20m is None else f'{h.win_pct_20m:.0%}'}, n={h.n_20m})"
+    # One source of truth with the bench page: the same sticky alert, state and options.
+    view = await asyncio.to_thread(
+        build_bench_view, ctx().store, ctx().replays, match_id, team_id, asof
     )
+    h = view.alert
+    subs_used = sum(
+        1
+        for e in _events(match_id, asof)
+        if e.event_type == "substitution" and e.team_id == team_id
+    )
+    if h is None:
+        diagnosis = "No hot duel: no defender has been beaten repeatedly yet"
+    else:
+        state = {"active": "firing now", "cooling": "not firing now", "monitoring":
+                 "new holder, monitoring", "none": ""}[view.alert_state]  # fmt: skip
+        diagnosis = (
+            f"Alert since {(h.first_fired_sec or 0) // 60}' ({state}): {_name(h.attacker_id)} vs "
+            f"{_name(h.defender_id)} ({h.defender_slot}), beaten in {h.beaten_20m} possession(s) "
+            f"in the last {window_label()} (defender win "
+            f"{'n/a' if h.win_pct_20m is None else f'{h.win_pct_20m:.0%}'}, n={h.n_20m})"
+        )
     head_to_head = {}
-    for pid in {r.incoming_player_id for r in recs if r.incoming_player_id} | {h.defender_id}:
-        prior = (await get_matchup_analysis(match_id, h.attacker_id, pid, asof))["prior_meetings"]
-        head_to_head[pid] = {"name": _name(pid), "prior_meetings": prior,
-                             "n": sum(m["take_ons"] for m in prior)}  # fmt: skip
+    if h is not None:
+        movers = {r.incoming_player_id for r in view.options if r.incoming_player_id}
+        for pid in movers | {h.defender_id}:
+            prior = (await get_matchup_analysis(match_id, h.attacker_id, pid, asof))[
+                "prior_meetings"
+            ]
+            head_to_head[pid] = {"name": _name(pid), "prior_meetings": prior,
+                                 "n": sum(m["take_ons"] for m in prior)}  # fmt: skip
     return {
         "match_id": match_id, "team_id": team_id, "asof_sec": asof,
-        "game_state": {"goal_difference": inp.goal_diff, "subs_remaining": inp.subs_left,
-                       "minute": inp.minute},
+        "game_state": {"subs_remaining": 5 - subs_used, "minute": view.minute,
+                       "score": view.score},
         "diagnosis": diagnosis,
-        "hot_duel": h.model_dump() | {"attacker": _name(h.attacker_id),
-                                      "defender": _name(h.defender_id)},
-        "ledger": inp.ledger.model_dump(),
+        "alert_state": view.alert_state,
+        "hot_duel": None if h is None else h.model_dump() | {
+            "attacker": _name(h.attacker_id), "defender": _name(h.defender_id)},
+        "ledger": None if view.ledger is None else view.ledger.model_dump(),
+        "threat": None if view.threat is None else view.threat.model_dump(),
         "head_to_head": head_to_head,
         "policy_weights": POLICY_WEIGHTS,
         "options": [
@@ -287,7 +293,7 @@ async def evaluate_substitutions(
                               "outgoing_name": _name(r.outgoing_player_id),
                               "moves_named": [m.model_dump() | {"name": _name(m.player_id)}
                                               for m in r.moves]}
-            for r in recs
+            for r in view.options
         ],
         "caveat": CAVEAT,
         "synthetic": True,
@@ -324,12 +330,13 @@ async def get_insight_candidates(
     rosters = store.rosters(match_id)
     events = _events(match_id, asof)
     for team in (match.home_team_id, match.away_team_id):
-        for h in hot_duels(events, rosters, team, asof):
-            fired = h.first_fired_sec or asof
+        fired_sec, at_fire = first_trigger(events, rosters, team, asof)
+        for h in at_fire[:1]:  # the alert's pair, with its stats at the moment it fired
+            fired = fired_sec or asof
             if fired <= since_sec:
                 continue  # already raised in an earlier check
             led = duel_ledger(events, h.attacker_id, h.defender_slot, team, rosters, fired,
-                              since=max(0, fired - 1200))  # fmt: skip
+                              since=max(0, fired - HOT_WINDOW_SEC))  # fmt: skip
             facts = {**h.model_dump(), "attacker": _name(h.attacker_id),
                      "defender": _name(h.defender_id)}  # fmt: skip
             evidence = [p.event_id for p in led.points][-6:]

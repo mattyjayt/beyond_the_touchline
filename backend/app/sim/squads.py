@@ -82,6 +82,11 @@ SPEED_MEAN_KMH = {"CB": 32.5, "FB": 34.0, "CM": 32.5, "W": 34.5, "ST": 33.5, "GK
 SPEED_SD_KMH = 1.2
 SPEED_RANGE_KMH = (29.0, 37.4)
 ACCEL_RANGE = (6.0, 7.9)
+# A0 (max starting acceleration) means by bucket, from the research report's LaLiga data
+# (CB 6.79, FB 6.70, CM 6.44, W 6.40); ST takes the winger value, GK the floor of the range
+A0_MEAN_MS2 = {"CB": 6.79, "FB": 6.70, "CM": 6.44, "W": 6.40, "ST": 6.40, "GK": 6.0}
+A0_SD_MS2 = 0.35
+A0_RHO = 0.6
 STAMINA_MEAN = {"CM": 82, "FB": 80, "W": 74, "CB": 72, "ST": 74, "GK": 60}
 HEIGHT_MEAN_CM = {"CB": 188, "FB": 178, "CM": 180, "W": 177, "ST": 184, "GK": 192}
 
@@ -138,7 +143,12 @@ def sample_physical(rng: random.Random, position: str, priors: PlayerPriors) -> 
     stance_jit = rng.randint(-8, 8)
     height_noise = rng.gauss(0, 4)
     speed = _clip(SPEED_MEAN_KMH[bucket] + z_speed * SPEED_SD_KMH, *SPEED_RANGE_KMH)
-    accel = _clip(6.9 + 0.6 * z_speed * 0.6 + noise * 0.8 * 0.35, *ACCEL_RANGE)
+    # A0 = positional mean + sigma * (rho * z_speed + sqrt(1 - rho^2) * noise): speed and A0
+    # correlate at rho (Phase B pre-registration, item 5)
+    accel = _clip(
+        A0_MEAN_MS2[bucket] + A0_SD_MS2 * (A0_RHO * z_speed + (1 - A0_RHO**2) ** 0.5 * noise),
+        *ACCEL_RANGE,
+    )
     return PhysicalProfile(
         top_speed_kmh=round(speed, 1),
         accel_ms2=round(accel, 2),
@@ -147,6 +157,11 @@ def sample_physical(rng: random.Random, position: str, priors: PlayerPriors) -> 
         stance_idx=int(_clip(priors.defending + stance_jit, 0, 100)),
         height_cm=round(HEIGHT_MEAN_CM[bucket] + height_noise),
     )
+
+
+def apply_pin(physical: PhysicalProfile, pin: dict) -> PhysicalProfile:
+    """Pinned demo values, validated (model_copy would skip the field bounds)."""
+    return PhysicalProfile.model_validate(physical.model_dump() | pin)
 
 
 def load_squads_file(path: Path = SEED_FILE) -> dict:
@@ -191,7 +206,7 @@ def load_reference(seed: int, path: Path = SEED_FILE) -> tuple[list[Team], list[
             }
             physical = sample_physical(phys_rng, p["primary_position"], PlayerPriors(**priors))
             if p["player_id"] in PINNED_PHYSICAL:
-                physical = physical.model_copy(update=PINNED_PHYSICAL[p["player_id"]])
+                physical = apply_pin(physical, PINNED_PHYSICAL[p["player_id"]])
             priors.update(PINNED_PRIORS.get(p["player_id"], {}))
             players.append(
                 Player(

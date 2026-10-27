@@ -29,6 +29,7 @@ from app.services.matchups import (
     duel_ledger,
     hot_duels,
     records_vs,
+    window_label,
 )
 from app.services.performance import (
     is_out_of_position,
@@ -42,7 +43,7 @@ from app.sim.duel import DuelContext, duel_prob
 from app.sim.engine import TRANSITION_ARCHETYPES
 from app.store import Store
 
-ADVISOR_VERSION = "advisor-v1"
+ADVISOR_VERSION = "advisor-v2"
 POLICY_WEIGHTS = {"L": 0.15, "F": 0.15, "M": 0.35, "A": 0.1, "G": 0.1, "R": 0.15}
 SHRINK_K = 6  # pseudo-duels of model prior when blending with the observed rate
 M_SCALE = 0.3  # a 30-point gain in duel win rate saturates M
@@ -400,7 +401,7 @@ def _shortlist(scored: list, inp: AdvisorInput) -> list:
     return picked
 
 
-def evaluate(inp: AdvisorInput) -> list[Recommendation]:
+def evaluate(inp: AdvisorInput, shortlist: bool = True) -> list[Recommendation]:
     """KEEP plus the best (up to 4) other options, ranked by policy score (KEEP scores 0)."""
     sc = _Scorer(inp)
     P, slot, old = inp.players, sc.slot, sc.old_def
@@ -410,7 +411,8 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
         dims, score = sc.dims(o)
         scored.append((score, o, dims))
     scored.sort(key=lambda t: (-t[0], t[1].kind, t[1].new_def))
-    scored = _shortlist(scored, inp)
+    if shortlist:
+        scored = _shortlist(scored, inp)
 
     keep_dims = OptionDims(L=0, F=0, M=0, A=0, G=0, R=0)
     rows = [(0.0, None, keep_dims)] + scored
@@ -433,7 +435,7 @@ def evaluate(inp: AdvisorInput) -> list[Recommendation]:
             cons = [
                 (
                     f"{P[old].display_name} beaten {inp.hot.beaten_20m} times by {torm} in the last "
-                    f"20' (win {_pct(inp.hot.win_pct_20m)}, n={inp.hot.n_20m})"
+                    f"{window_label()} (win {_pct(inp.hot.win_pct_20m)}, n={inp.hot.n_20m})"
                 )
             ]
             if old in inp.yellows:

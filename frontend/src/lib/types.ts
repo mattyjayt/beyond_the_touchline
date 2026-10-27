@@ -358,11 +358,14 @@ export interface BenchView {
   defender: PlayerCard | null; // current holder of the alerted slot
   ledger: DuelLedger | null;
   threat: FlankThreat | null;
+  league_def_win: number; // league-average defender win rate the trigger compares against
   options: Recommendation[];
   cards: Record<string, PlayerCard>;
   race: RaceResult | null;
   impact: SwapImpact | null;
-  executed_option_rank_at_alert: number | null;
+  executed_option_rank_at_alert: number | null; // among ALL options scored at the alert
+  alert_option_count: number | null;
+  executed_below_keep: boolean;
   importance: ImportanceItem[];
   importance_note: string; // method, n, AUC and the methodology-demo caveat ("" if no study)
   slots: Record<string, string>; // our on-pitch players -> slot at asof (formation preview)

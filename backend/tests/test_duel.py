@@ -56,7 +56,7 @@ def _player(pid: str, **phys) -> Player:
 
 
 def test_model_version():
-    assert MODEL_VERSION == "duel-v2"
+    assert MODEL_VERSION == "duel-v3"
 
 
 def test_fatigue_flat_before_55():
@@ -73,14 +73,23 @@ def test_burst_favours_faster_accelerator():
     assert duel_prob(att, slow, c, 0.5).p_beat > duel_prob(att, fast, c, 0.5).p_beat
 
 
-def test_top_speed_only_affects_recovery():
+def test_top_speed_mainly_drives_recovery():
+    """duel-v3: top speed reaches p_beat only through the small 1 s sprint gap (burst, metres);
+    its big effect is on recovering once beaten."""
+    from app.sim import sprint
+
     att = _player("A")
     d1 = _player("D1", top_speed_kmh=31.0)
     d2 = _player("D2", top_speed_kmh=36.0)
     c = _ctx()
     t1, t2 = duel_prob(att, d1, c, 0.5), duel_prob(att, d2, c, 0.5)
-    assert t1.p_beat == t2.p_beat
-    assert t1.p_recover != t2.p_recover
+    a0 = d1.physical.accel_ms2
+    gap = sprint.distance(1.0, 36.0, a0) - sprint.distance(1.0, 31.0, a0)
+    assert t1.burst - t2.burst == pytest.approx(gap, abs=2e-3)
+    # top speed enters the duel only through the burst term
+    from app.sim.duel import BURST_BETA
+
+    assert t1.z - t2.z == pytest.approx(BURST_BETA * (t1.burst - t2.burst), abs=2e-3)
     assert t2.p_recover > t1.p_recover
 
 

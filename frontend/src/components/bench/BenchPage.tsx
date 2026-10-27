@@ -73,14 +73,15 @@ function BenchBody({ detail }: { detail: MatchDetail }) {
             chosen={b.chosen} onEvidence={setHighlight} />
           <FlankPitch ledger={view.ledger} threat={view.threat} swapSec={view.impact?.swap_sec ?? null} highlight={highlight}
             onHighlight={setHighlight} name={name} />
-          <DuelWinRate ledger={view.ledger} alertSec={view.alert?.first_fired_sec ?? null}
+          <DuelWinRate ledger={view.ledger} leagueWin={view.league_def_win} alertSec={view.alert?.first_fired_sec ?? null}
             swapSec={view.impact?.swap_sec ?? null} onSeek={b.setAsof} />
           <OptionCards options={options} selected={selected ? optionKey(selected) : null} chosen={b.chosen}
             onSelect={b.select} onChoose={b.choose} name={name} />
           <RadarCompare tormentor={view.tormentor} candidate={candidate} current={view.defender}
             highlightVar={highlightVar} onHighlightVar={setHighlightVar} />
           <SprintRace race={view.race} ids={raceIds} colours={colours} />
-          <SwapImpact impact={view.impact} executedRank={view.executed_option_rank_at_alert} name={name} />
+          <SwapImpact impact={view.impact} executedRank={view.executed_option_rank_at_alert}
+            optionCount={view.alert_option_count} belowKeep={view.executed_below_keep} name={name} />
           <FormationPreview formation={match.home_formation} slots={view.slots} option={selected}
             players={detail.players} kit={home.primary_color} ink={home.secondary_color} />
           <VariableImportance items={view.importance} note={view.importance_note}

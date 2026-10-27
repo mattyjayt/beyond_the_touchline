@@ -64,6 +64,9 @@ class HotDuel(BaseModel):
     win_pct_20m: float | None = Field(default=None, ge=0, le=1)
     n_20m: int
     first_fired_sec: int | None = None
+    p_below_league: float | None = None  # posterior P(holder's win rate < league average)
+    threat_shots_20m: int = 0  # shots from the attacker's channel in the last 20 min
+    threat_entries_20m: int = 0  # completed crosses / box entries from that channel
     # the slot's last 20 min across every holder (the alert's subject is the channel, but the
     # fields above are always the CURRENT holder's own record)
     slot_beaten_20m: int = 0

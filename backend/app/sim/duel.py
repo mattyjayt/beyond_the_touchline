@@ -9,11 +9,15 @@ import math
 from dataclasses import dataclass
 
 from app.models.reference import Player
+from app.sim import sprint
 
-MODEL_VERSION = "duel-v2"
+MODEL_VERSION = "duel-v3"
 # Calibration offset on z (pre-registered): the smallest integer that puts league-wide
 # simulated take-on success in [0.45, 0.52]. Simulator model, uncalibrated against real data.
-DUEL_BASELINE = 12
+DUEL_BASELINE = 16
+# z per metre of 1 s sprint gap, derived (not tuned): an A0 edge of 0.5 m/s2 at equal top
+# speed (7.4 vs 6.9 at 33 km/h) is worth odds x 1.5 (Phase B pre-registration, item 2)
+BURST_BETA = math.log(1.5) / (sprint.distance(1.0, 33.0, 7.4) - sprint.distance(1.0, 33.0, 6.9))
 
 
 @dataclass(frozen=True)
@@ -61,7 +65,7 @@ def _clamp(v: float, lo: float, hi: float) -> float:
 
 
 def fatigue(minutes_on: float, stamina_idx: int) -> float:
-    """Multiplier on accel and agility indices; flat until minute 55."""
+    """Multiplier on A0 (m/s2) and the agility index; flat until minute 55."""
     return 1 - 0.004 * max(0.0, minutes_on - 55) * (100 - stamina_idx) / 20
 
 
@@ -77,11 +81,14 @@ def duel_prob(att: Player, dfn: Player, c: DuelContext, stance: float) -> DuelTe
     a_phys, d_phys = att.physical, dfn.physical
     fat_a = fatigue(c.att_minutes_on, a_phys.stamina_idx)
     fat_d = fatigue(c.def_minutes_on, d_phys.stamina_idx)
-    acc_a, acc_d = a_phys.accel_idx * fat_a, d_phys.accel_idx * fat_d
     agil_a, agil_d = a_phys.agility_idx * fat_a, d_phys.agility_idx * fat_d
 
-    tech = att.priors.dribbling - (0.7 * dfn.priors.defending + 0.3 * agil_d)
-    burst = acc_a - acc_d
+    # duel-v3: agility enters once (via `agil`); burst is the 1 s sprint gap in metres with
+    # fatigue applied to A0 in m/s2 (Phase B pre-registration, items 2-3)
+    tech = att.priors.dribbling - dfn.priors.defending
+    burst = sprint.distance(1.0, a_phys.top_speed_kmh, a_phys.accel_ms2 * fat_a) - sprint.distance(
+        1.0, d_phys.top_speed_kmh, d_phys.accel_ms2 * fat_d
+    )
     agil = agil_a - agil_d
 
     ctx = 6 * (1 - stance) - 4 * (1 - _clamp(c.touch, 0.0, 50.0) / 50)
@@ -94,7 +101,7 @@ def duel_prob(att: Player, dfn: Player, c: DuelContext, stance: float) -> DuelTe
     if c.cover_near:
         ctx -= 6
 
-    z = (0.5 * tech + 0.4 * burst + 0.1 * agil + ctx + c.script - DUEL_BASELINE) / 10
+    z = (0.5 * tech + 0.1 * agil + ctx + c.script - DUEL_BASELINE) / 10 + BURST_BETA * burst
     p_beat = _clamp(0.85 / (1 + math.exp(-z)), 0.05, 0.9)
     p_rec = p_recover(d_phys.top_speed_kmh, a_phys.top_speed_kmh)
 

@@ -3,7 +3,8 @@
 import pytest
 
 MATCH, TEAM = "SIM-001", "T-LIV"
-ALERT_SEC = 3714  # first hot-duel trigger in the regenerated demo (docs/schema.md §11)
+ALERT_SEC = 3333  # first hot-duel trigger in the sim-v0.4 demo (docs/schema.md §11)
+SWAP_SEC = 4223  # the scripted 70' swap lands at the next stoppage
 
 
 @pytest.fixture
@@ -83,14 +84,16 @@ def test_bench_after_swap_has_impact(app_client, seek):
     assert v["alert"]["first_fired_sec"] == ALERT_SEC
     assert v["defender"]["player_id"] == "P-LIV-08"
     # honest comparison with the advisor's ranking at the alert (spec 7.8)
-    assert v["executed_option_rank_at_alert"] == 3
+    # ranked among every option scored at the alert (sim-v0.4 demo: 9th of 17, below KEEP)
+    assert v["executed_option_rank_at_alert"] == 9 and v["alert_option_count"] == 17
+    assert v["executed_below_keep"] is True
     assert v["ledger"]["defender_ids"] == ["P-LIV-30", "P-LIV-08"]
     # C1: the alert's numbers are Szoboszlai's own, the slot history is separate
     assert v["alert"]["defender_id"] == "P-LIV-08"
     assert v["alert"]["slot_n_20m"] >= v["alert"]["n_20m"]
 
 
-@pytest.mark.parametrize("asof", [4200, 4300])
+@pytest.mark.parametrize("asof", [SWAP_SEC, SWAP_SEC + 100])
 def test_bench_new_holder_is_monitored_not_blamed(app_client, seek, asof):
     seek(5400)
     v = bench(app_client, asof)
@@ -200,5 +203,30 @@ def test_stale_importance_file_is_ignored(tmp_path):
 
 def test_briefing_mentions_a_booked_tormentor(app_client, seek):
     seek(5400)
-    v = bench(app_client, ALERT_SEC)  # Doku was booked at 846 s
-    assert "Jérémy Doku is on a yellow" in v["briefing_seed"]
+    v = bench(app_client, ALERT_SEC)
+    store = app_client.app.state.store
+    booked = any(
+        e.event_type == "card" and e.player_id == "P-MCI-11" and e.event_sec <= ALERT_SEC
+        for e in store.events(MATCH)
+    )
+    assert ("Jérémy Doku is on a yellow" in v["briefing_seed"]) is booked
+
+
+def test_cached_first_fire_matches_a_fresh_scan(app_client):
+    from app.services.bench import _first_fire
+    from app.services.matchups import first_trigger
+
+    store = app_client.app.state.store
+    events, rosters = store.events(MATCH), store.rosters(MATCH)
+    for asof in (ALERT_SEC - 1, ALERT_SEC, 4300, 5400):
+        fresh = first_trigger([e for e in events if e.event_sec <= asof], rosters, TEAM, asof)
+        cached = _first_fire(store, MATCH, TEAM, asof)
+        assert cached[0] == fresh[0]
+        assert [h.model_dump() for h in cached[1]] == [h.model_dump() for h in fresh[1]]
+
+
+def test_bench_carries_the_league_reference_line(app_client, seek):
+    from app.services.matchups import LEAGUE_DEF_WIN
+
+    seek(5400)
+    assert bench(app_client, ALERT_SEC)["league_def_win"] == LEAGUE_DEF_WIN

@@ -2,6 +2,8 @@ import hashlib
 import json
 import statistics
 
+import pytest
+
 from app.models import PhysicalProfile
 from app.sim import squads
 from app.sim.squads import load_reference
@@ -25,7 +27,9 @@ def test_profile_indices_map_linearly():
     )
     assert prof.speed_idx == 50
     assert prof.accel_idx == 50
-    assert prof.time_0_5m_s == round((10 / 6.95) ** 0.5 + 0.25, 2)
+    from app.sim.sprint import time_to
+
+    assert prof.time_0_5m_s == round(time_to(5.0, 33.0, 6.95), 2)  # one model: the sprint race
 
 
 def test_indices_clamped():
@@ -110,3 +114,30 @@ def test_physical_roundtrips_through_db(tmp_path):
     back = {p.player_id: p for p in db.read_players(conn)}
     assert back["P-MCI-11"].physical == _players()["P-MCI-11"].physical
     assert all(p.physical is not None for p in back.values())
+
+
+# ------------------------------------------- Phase B item 5: sampling hygiene
+def test_accel_means_follow_the_research_by_position():
+    from app.sim.squads import A0_MEAN_MS2, PINNED_PHYSICAL
+
+    _, players = load_reference(SEED)
+    by_bucket: dict[str, list[float]] = {}
+    for p in players:
+        if p.player_id in PINNED_PHYSICAL:
+            continue
+        b = squads.PHYS_BUCKET[p.primary_position]
+        by_bucket.setdefault(b, []).append(p.physical.accel_ms2)
+    for b, vals in by_bucket.items():
+        if len(vals) >= 15:
+            assert statistics.mean(vals) == pytest.approx(A0_MEAN_MS2[b], abs=0.15), b
+
+
+def test_pinned_values_are_validated():
+    import pydantic
+
+    from app.models import PhysicalProfile as PP
+
+    good = PP(top_speed_kmh=33, accel_ms2=7, agility_idx=50, stamina_idx=50, stance_idx=50,
+              height_cm=180)  # fmt: skip
+    with pytest.raises(pydantic.ValidationError):
+        squads.apply_pin(good, {"accel_ms2": 99})

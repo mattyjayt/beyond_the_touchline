@@ -85,3 +85,20 @@ def test_study_deterministic(small):
     again = run_study(2026, 2000, seeds=3)
     assert [r.var_id for r in again.ranked] == [r.var_id for r in small.ranked]
     assert again.auc == small.auc
+
+
+def test_text_io_is_utf8_everywhere():
+    """Windows defaults to cp1252: every text read/write in the app names its encoding."""
+    import re
+    from pathlib import Path
+
+    app = Path(__file__).resolve().parents[1] / "app"
+    offenders = [
+        f"{p.name}:{i}"
+        for p in app.rglob("*.py")
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if re.search(r"\.(read_text|write_text)\(", line)
+        and "encoding=" not in line
+        and not line.strip().startswith("#")
+    ]
+    assert not offenders, offenders

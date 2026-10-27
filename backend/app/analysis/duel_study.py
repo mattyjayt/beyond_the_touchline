@@ -217,12 +217,13 @@ def run_study(seed: int, n: int, seeds: int = 5) -> StudyResult:
 
 def write(result: StudyResult) -> None:
     JSON_OUT.parent.mkdir(parents=True, exist_ok=True)
-    JSON_OUT.write_text(json.dumps({
+    payload = {
         "caveat": CAVEAT, "method": result.method, "seed": result.seed, "seeds": result.seeds,
         "n": result.n, "auc": result.auc, "oracle_auc": result.oracle_auc,
         "model_version": MODEL_VERSION, "ranked": [r.model_dump() for r in result.ranked],
         "groups": GROUPS, "not_ranked": result.not_ranked, "synthetic": True,
-    }, indent=2))  # fmt: skip
+    }  # fmt: skip
+    JSON_OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     seeds = f"{result.seeds[0]}–{result.seeds[-1]}"
     lines = [
         "# Variable importance (duel study)",
@@ -254,7 +255,7 @@ def write(result: StudyResult) -> None:
         f"| {r.importance:.5f} | {r.rank_lo}–{r.rank_hi} |"
         for r in result.ranked
     ]
-    MD_OUT.write_text("\n".join(lines) + "\n")
+    MD_OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:

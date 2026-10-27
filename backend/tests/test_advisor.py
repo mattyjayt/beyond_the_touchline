@@ -10,6 +10,7 @@ from app.services.advisor import POLICY_WEIGHTS, advisor_input, evaluate
 from app.store import Store
 
 MATCH, TEAM, ASOF = "SIM-001", "T-LIV", 4080
+ALERT_SEC = 3333  # first hot-duel trigger in the sim-v0.4 demo (docs/schema.md §11)
 FRIMPONG, SZOBOSZLAI, GOMEZ, BRADLEY = "P-LIV-30", "P-LIV-08", "P-LIV-02", "P-LIV-12"
 
 
@@ -30,6 +31,20 @@ def options(inp):
     return evaluate(inp)
 
 
+@pytest.fixture(scope="module")
+def full(inp):
+    """Every scored option (the shortlist only shows the best of each kind)."""
+    return evaluate(inp, shortlist=False)
+
+
+def szo_swap(opts):
+    return next(
+        o for o in opts
+        if o.option_type == "position_swap" and _moves(o)
+        == {(SZOBOSZLAI, "RW", "RB", "move"), (FRIMPONG, "RB", "RW", "move")}
+    )  # fmt: skip
+
+
 def _moves(rec) -> set[tuple[str, str | None, str | None, str]]:
     return {(m.player_id, m.from_slot, m.to_slot, m.kind) for m in rec.moves}
 
@@ -47,7 +62,7 @@ def test_input_reflects_the_hot_duel(inp):
     assert inp.slots[FRIMPONG] == "RB" and inp.slots[SZOBOSZLAI] == "RW"
     assert GOMEZ in inp.bench and BRADLEY in inp.bench
     assert inp.subs_left == 5 and inp.tormentor.player_id == "P-MCI-11"
-    assert FRIMPONG in inp.yellows  # booked at 3725 s
+    assert inp.yellows <= set(inp.slots)  # only our booked players still on the pitch
 
 
 def test_keep_always_present_and_first_class(options):
@@ -58,21 +73,19 @@ def test_keep_always_present_and_first_class(options):
     assert len(options) <= 5
 
 
-def test_swap_option_szoboszlai_to_rb(options):
-    swap = next(o for o in options if o.option_type == "position_swap")
-    assert _moves(swap) == {(SZOBOSZLAI, "RW", "RB", "move"), (FRIMPONG, "RB", "RW", "move")}
-    assert swap.dims.M > 0
-    assert swap.confidence == "low"  # no history at RB (n=0)
+def test_swap_option_szoboszlai_to_rb(full):
+    swap = szo_swap(full)
+    assert swap.dims.M > 0  # he projects better than Frimpong against Doku
+    assert swap.dims.F == pytest.approx(-0.2)  # RB is a secondary for him (0.8 vs 1.0)
     assert swap.incoming_player_id == SZOBOSZLAI and swap.outgoing_player_id == FRIMPONG
     assert swap.projected_win_pct is not None and swap.projected_win_pct > 0.3
     assert swap.out_of_position is False  # RB and RW are listed secondaries
+    assert swap.confidence != "high"
 
 
-def test_swap_pros_and_cons_quote_numbers(options):
-    swap = next(o for o in options if o.option_type == "position_swap")
-    text = " ".join(swap.pros + swap.cons)
+def test_swap_pros_and_cons_quote_numbers(full):
+    text = " ".join(szo_swap(full).pros + szo_swap(full).cons)
     assert "m after 1 s" in text and "simulated" in text
-    assert "n=0" in text
 
 
 def test_sub_options_include_gomez_or_bradley(options):
@@ -110,7 +123,7 @@ def test_every_option_cites_evidence_up_to_asof(store, options):
         assert o.synthetic is True
 
 
-def test_acceleration_claim_needs_a_real_race_gap(options):
+def test_acceleration_claim_needs_a_real_race_gap(store, options):
     """C6: an acceleration edge is only claimed when the sprint race shows >= 0.15 m at 1 s,
     and the copy uses real units (m/s2 and metres)."""
     import re
@@ -119,8 +132,11 @@ def test_acceleration_claim_needs_a_real_race_gap(options):
         for text in o.pros + o.cons:
             if m := re.search(r"Out-accelerates .*: ([\d.]+) vs ([\d.]+) m after 1 s", text):
                 assert float(m[1]) - float(m[2]) >= 0.15, text
-    swap = next(o for o in options if o.option_type == "position_swap")
-    level = next(t for t in swap.pros if "Level off the mark" in t)
+    level = next(
+        t
+        for t in szo_swap(evaluate(advisor_input(store, MATCH, TEAM, ASOF), shortlist=False)).pros
+        if "Level off the mark" in t
+    )
     assert "m/s²" in level and "m after 1 s" in level  # 1.74 vs 1.67 m: a 7 cm gap
 
 
@@ -154,10 +170,10 @@ def test_keep_wins_when_a_natural_holder_is_not_outmatched(inp):
     assert ranked[0].option_type == "keep", [(o.option_type, o.score) for o in ranked]
 
 
-def test_m_compares_blended_estimates_on_both_sides(inp):
+def test_m_compares_blended_estimates_on_both_sides(inp, full):
     from app.services.advisor import M_SCALE, SHRINK_K, projected_win
 
-    swap = next(o for o in evaluate(inp) if o.option_type == "position_swap")
+    swap = szo_swap(full)
 
     def shrunk(pid: str) -> float:
         won, n = inp.observed.get(pid, (0, 0))
@@ -167,9 +183,9 @@ def test_m_compares_blended_estimates_on_both_sides(inp):
     assert swap.dims.M == pytest.approx(max(-1, min(1, expected)), abs=1e-3)
 
 
-def test_fit_is_relative_to_the_holder(inp):
+def test_fit_is_relative_to_the_holder(full):
     # Frimpong is a natural RB (fit 1.0); Szoboszlai's RB is a secondary (0.8)
-    swap = next(o for o in evaluate(inp) if o.option_type == "position_swap")
+    swap = szo_swap(full)
     assert swap.dims.F == pytest.approx(-0.2)
 
 
@@ -182,7 +198,7 @@ def test_swap_gets_partial_form_credit(inp):
 
 
 def test_at_the_alert_a_change_still_outranks_keep(store):
-    at_alert = advisor_input(store, MATCH, TEAM, 3714)
+    at_alert = advisor_input(store, MATCH, TEAM, ALERT_SEC)
     ranked = evaluate(at_alert)
     assert ranked[0].option_type != "keep"
 
@@ -190,7 +206,7 @@ def test_at_the_alert_a_change_still_outranks_keep(store):
 def test_shortlist_shows_every_option_type_and_the_natural_sub(store, options):
     kinds = {o.option_type for o in options}
     assert {"keep", "substitution", "position_swap", "sub_and_swap"} <= kinds
-    at_alert = evaluate(advisor_input(store, MATCH, TEAM, 3714))
+    at_alert = evaluate(advisor_input(store, MATCH, TEAM, ALERT_SEC))
     assert BRADLEY in {o.incoming_player_id for o in at_alert}  # the like-for-like RB
 
 

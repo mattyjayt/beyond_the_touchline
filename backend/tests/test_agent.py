@@ -4,7 +4,8 @@ from app.agent import rules, tools
 from app.agent.ask import AskRequest, ask_rules
 
 MATCH = "SIM-001"
-ALERT_SEC = 4020  # after the 61.9' hot-duel trigger (3714 s), before the 70' swap
+ALERT_SEC = 4020  # after the 55.5' hot-duel trigger (3333 s), before the 70' swap (4223 s)
+FIRST_ALERT = 3333
 
 
 @pytest.fixture(scope="module")
@@ -28,10 +29,9 @@ async def test_substitution_evaluation_has_keep_swap_and_sub(client):
     assert ev["hot_duel"]["defender_slot"] == "RB" and ev["hot_duel"]["attacker_id"] == "P-MCI-11"
     assert ev["ledger"]["duels"] >= 8 and ev["ledger"]["points"]
     swap = next(o for o in ev["options"] if o["option_type"] == "position_swap")
-    assert swap["incoming_name"] == "Dominik Szoboszlai"
-    assert swap["outgoing_name"] == "Jeremie Frimpong"
+    assert swap["incoming_name"] and swap["outgoing_name"] == "Jeremie Frimpong"
     # head-to-head is reported separately with its n, never blended into the score
-    h2h = ev["head_to_head"]["P-LIV-08"]
+    h2h = ev["head_to_head"][swap["incoming_player_id"]]
     assert set(h2h) >= {"prior_meetings", "n"}
 
 
@@ -53,7 +53,7 @@ async def test_insight_candidates_name_the_hot_duel(client):
     alert = next(c for c in cands["candidates"] if c["kind"] == "tactical_alert")
     assert alert["facts"]["attacker"] == "Jérémy Doku"
     assert alert["facts"]["defender"] == "Jeremie Frimpong"
-    assert alert["asof_sec"] == 3714 and alert["evidence_event_ids"]
+    assert alert["asof_sec"] == FIRST_ALERT and alert["evidence_event_ids"]
     fan, analyst = await rules.render(MATCH, alert)
     assert "Doku" in fan.headline and "RB" in analyst.headline
 
@@ -113,11 +113,11 @@ def test_briefing_follows_the_scrubbed_second(client, monkeypatch):
     client.post(f"/api/matches/{MATCH}/replay", json={"action": "seek", "value": 5400})
     try:
         r = client.post("/api/agent/ask", json={"match_id": MATCH, "mode": "briefing",
-                                               "team_id": "T-LIV", "asof_sec": 3714,
+                                               "team_id": "T-LIV", "asof_sec": FIRST_ALERT,
                                                "chosen": "keep"})  # fmt: skip
         res = r.json()
     finally:
         client.post(f"/api/matches/{MATCH}/replay", json={"action": "seek", "value": ALERT_SEC})
     secs = {e.event_id: e.event_sec for e in tools.ctx().store.events(MATCH)}
-    assert "62'" in res["answer"] and "Since the 70'" not in res["answer"]
-    assert all(secs[i] <= 3714 for i in res["evidence_event_ids"])
+    assert f"{FIRST_ALERT // 60 + 1}'" in res["answer"] and "Since the 70'" not in res["answer"]
+    assert all(secs[i] <= FIRST_ALERT for i in res["evidence_event_ids"])

@@ -12,6 +12,7 @@ import logging
 from app.agent import tools
 from app.models import Insight, Recommendation
 from app.services import advisor
+from app.services.matchups import window_label
 
 log = logging.getLogger(__name__)
 GENERATOR = "rules-v0"
@@ -80,7 +81,7 @@ async def render(match_id: str, cand: dict) -> list[Insight]:
                      f"Based on {f['n_20m']} duels; a pattern, not a verdict."),
             _insight(match_id, cand, "analyst",
                      f"Hot duel: {f['attacker']} vs {f['defender_slot']} {f['defender']}",
-                     f"Beaten {f['beaten_20m']} in 20' · defender win {pct} (n={f['n_20m']}). "
+                     f"Beaten {f['beaten_20m']} in {window_label()} · defender win {pct} (n={f['n_20m']}). "
                      "Duel terms on each event come from the simulator model (uncalibrated).",
                      f"n={f['n_20m']} duels; small samples swing quickly."),
         ]  # fmt: skip

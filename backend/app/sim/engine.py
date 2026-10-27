@@ -19,11 +19,16 @@ from app.sim.formations import Slot, formation_slots
 
 log = logging.getLogger(__name__)
 
-GENERATOR_VERSION = "sim-v0.3"
+GENERATOR_VERSION = "sim-v0.4"
 # Booked players are cautious: their chance of another card per foul is scaled down
 # (calibration C6, docs/schema.md §11).
-SECOND_YELLOW_FACTOR = 0.1
+SECOND_YELLOW_FACTOR = 0.05
 STRAIGHT_RED_P = 0.0015  # per foul; ~0.05 straight reds a match
+GENERAL_YELLOW_P = 0.165  # per ordinary foul
+SPA_YELLOW_P = 0.8  # a beaten last man's tactical foul is almost always booked
+DOGSO_RED_P = 0.1  # ... and sometimes sent off when central and close to goal
+DOGSO_MIN_X = 76.0  # attacker frame: ~25 m from goal on a 105 m pitch
+DOGSO_Y = (30.0, 70.0)  # central band
 HALF_SEC = 2700
 MAX_SUBS = 5
 WIDE_ARCHETYPES = {"direct_winger", "inside_forward", "ball_carrier", "attacking_fullback"}
@@ -66,6 +71,29 @@ def overall(p: Player) -> float:
     if group == "MID":
         return (pr.passing * 2 + pr.dribbling + pr.defending) / 4
     return (pr.finishing * 2 + pr.dribbling) / 3
+
+
+def foul_context(att_xy: tuple[float, float]) -> str:
+    """Last-man foul at a duel point (attacker frame): DOGSO if central and within ~25 m of
+    goal, otherwise stopping a promising attack (SPA)."""
+    x, y = att_xy
+    return "dogso" if x >= DOGSO_MIN_X and DOGSO_Y[0] <= y <= DOGSO_Y[1] else "spa"
+
+
+def card_for_foul(r: float, booked: bool, context: str) -> str | None:
+    """Card for a foul given a uniform draw ``r``. Booked players are cautious: their chance of
+    another booking is scaled by SECOND_YELLOW_FACTOR (Phase B pre-registration, item 6)."""
+    caution = SECOND_YELLOW_FACTOR if booked else 1.0
+    if context == "general":
+        red_p, yellow_p = STRAIGHT_RED_P, GENERAL_YELLOW_P
+    else:
+        red_p = DOGSO_RED_P if context == "dogso" else 0.0
+        yellow_p = SPA_YELLOW_P * (1 - red_p)
+    if r < red_p:
+        return "red"
+    if r < red_p + yellow_p * caution:
+        return "second_yellow" if booked else "yellow"
+    return None
 
 
 @dataclass
@@ -226,6 +254,7 @@ class MatchSim:
         self.force_cross = False
         self.force_header: Player | None = None
         self.followup: str | None = None  # possession_id armed by a scripted channel win
+        self.scripted_pair_poss: str | None = None  # possession that used the scripted pairing
         self.failed_swaps: list[tuple[int, str, str, str]] = []  # forced swaps that no-op'd
         for side in (home, away):
             for _, p in side.players():
@@ -634,6 +663,9 @@ class MatchSim:
         defender = self.nearest(opp, mpt)
         sc = self.scenario
         if sc and sc.marker_id and sc.active(p.player_id, self.clock):
+            if self.scripted_pair_poss == self.possession_id:
+                return defender  # follow-up in the same possession: whoever is nearest
+            self.scripted_pair_poss = self.possession_id
             if sc.marker_slot is not None:
                 # The scripted channel: whoever holds the marked slot meets the focus player.
                 defender = opp.on_pitch.get(sc.marker_slot) or defender
@@ -684,7 +716,8 @@ class MatchSim:
             # attacker ends up: the end point overcounted with fixed slot depths.
             self.is_last_line(opp, mpt, defender.player_id) and self.rng.random() < LAST_LINE_FOUL_P
         ):
-            self.foul(side, opp, p, offender=defender)  # last man beaten: 25% foul
+            # last man beaten: a tactical foul (SPA), or DOGSO when central and close to goal
+            self.foul(side, opp, p, offender=defender, context=foul_context(mirror(*mpt)))
         elif script and dfn_slot is not None and self.in_channel(dfn_slot, mpt):
             self.followup = self.possession_id  # spec 3.4: arm the follow-up cross/shot
 
@@ -759,17 +792,18 @@ class MatchSim:
             else:
                 self.turnover_to(opp, mirror(x, y))
 
-    def foul(self, side: Side, opp: Side, victim: Player, offender: Player | None = None) -> None:
+    def foul(
+        self,
+        side: Side,
+        opp: Side,
+        victim: Player,
+        offender: Player | None = None,
+        context: str = "general",
+    ) -> None:
         x, y = self.ball
         offender = offender or self.nearest(opp, mirror(x, y))
         foul_ev = self.emit(opp, "foul", "neutral", offender, start=mirror(x, y), opponent=victim)
-        r = self.rng.random()
-        card = None
-        booked = offender.player_id in opp.yellows
-        if r < STRAIGHT_RED_P:
-            card = "red"
-        elif r < STRAIGHT_RED_P + 0.165 * (SECOND_YELLOW_FACTOR if booked else 1.0):
-            card = "second_yellow" if booked else "yellow"
+        card = card_for_foul(self.rng.random(), offender.player_id in opp.yellows, context)
         if card:
             self.tick(5, 15)
             card_ev = self.emit(opp, "card", "neutral", offender, qualifiers={"card": card})

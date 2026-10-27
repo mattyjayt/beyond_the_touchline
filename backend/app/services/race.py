@@ -1,33 +1,13 @@
 """Sprint race (spec 4): simulated 0-3 s distance curves from the physical profile.
 
-After a fixed reaction time, speed follows v(t) = vmax * (1 - exp(-t / tau)) with
-tau = vmax / accel (vmax in m/s). Distance is the closed-form integral. Simulator model,
-uncalibrated: the UI animates these samples and never computes its own.
+Kinematics live in ``app.sim.sprint`` (shared with the duel model and the physical profile).
+Simulator model, uncalibrated: the UI animates these samples and never computes its own.
 """
 
-import math
-
 from app.models import Player, RaceCurve, RaceResult
+from app.sim import sprint
 
 LABEL = "Simulated sprint model from synthetic physical profiles; not measured data."
-
-
-def _distance(t: float, vmax: float, tau: float, reaction_s: float) -> float:
-    s = t - reaction_s
-    if s <= 0:
-        return 0.0
-    return vmax * (s - tau * (1 - math.exp(-s / tau)))
-
-
-def _t_at(dist: float, vmax: float, tau: float, reaction_s: float) -> float:
-    lo, hi = reaction_s, reaction_s + 10.0
-    for _ in range(60):  # bisection; distance is increasing after the reaction time
-        mid = (lo + hi) / 2
-        if _distance(mid, vmax, tau, reaction_s) < dist:
-            lo = mid
-        else:
-            hi = mid
-    return hi
 
 
 def race(
@@ -40,11 +20,10 @@ def race(
     for p in players:
         if p.physical is None:
             raise ValueError(f"{p.player_id} has no physical profile")
-        vmax = p.physical.top_speed_kmh / 3.6
-        tau = vmax / p.physical.accel_ms2
+        kmh, a0 = p.physical.top_speed_kmh, p.physical.accel_ms2
 
-        def dist(t: float, vmax: float = vmax, tau: float = tau) -> float:
-            return _distance(t, vmax, tau, reaction_s)
+        def dist(t: float, kmh: float = kmh, a0: float = a0) -> float:
+            return sprint.distance(t, kmh, a0, reaction_s)
 
         curves.append(
             RaceCurve(
@@ -52,7 +31,7 @@ def race(
                 name=p.display_name,
                 t=ts,
                 d=[round(dist(t), 3) for t in ts],
-                t5m=round(_t_at(5.0, vmax, tau, reaction_s), 3),
+                t5m=round(sprint.time_to(5.0, kmh, a0, reaction_s), 3),
                 d1s=round(dist(1.0), 3),
                 d2s=round(dist(2.0), 3),
             )

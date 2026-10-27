@@ -39,7 +39,7 @@ SWAP_SEC = 4200  # 70': forced Szoboszlai <-> Frimpong swap
 SCRIPT_BOOSTS = [6.0, 8.0, 10.0, 12.0]  # tried lowest first; the first that passes is kept
 SEED_ATTEMPTS = 500
 FOLLOWUP_MULT = 2.0  # spec 3.4 follow-up cross/shot boost after a scripted channel win
-MIN_BEATS = 6  # Doku beats Frimpong >= 6 times in [BOOST_FROM_SEC, SWAP_SEC)
+MIN_BEAT_POSS = 3  # Doku beats Frimpong in >= 3 distinct possessions in [BOOST_FROM_SEC, SWAP_SEC)
 TRIGGER_FROM, TRIGGER_TO = 3300, 4080  # hot-duel trigger first fires between 55' and 68'
 # Swap candidates must match or beat Frimpong on these physical indices (spec 3.4). The
 # defensive index is the stance index (side-on defending, sampled from the defending prior).
@@ -61,8 +61,19 @@ def round_robin(team_ids: list[str]) -> list[tuple[str, str]]:
     return first_leg + [(b, a) for a, b in first_leg]
 
 
-def demo_scenario(script_boost: float) -> Scenario:
+# Doku's scripted volume levers (Phase B pre-registration, item 8: chosen by calibrate.py)
+DEMO_TAKE_ON_MULT = 1.5
+DEMO_PASS_MULT = 4.0
+
+
+def demo_scenario(
+    script_boost: float,
+    take_on_freq_mult: float | None = None,
+    pass_to_focus_mult: float | None = None,
+) -> Scenario:
     return Scenario(
+        take_on_freq_mult=DEMO_TAKE_ON_MULT if take_on_freq_mult is None else take_on_freq_mult,
+        pass_to_focus_mult=DEMO_PASS_MULT if pass_to_focus_mult is None else pass_to_focus_mult,
         focus_player_id=TORMENTOR,
         marker_id=VICTIM,
         marker_slot="RB",
@@ -94,12 +105,12 @@ def storyline(events: list[MatchEvent], rosters: list[RosterEntry]) -> dict | No
     # evaluated on this truncated list, so post-swap outcomes cannot influence which seed
     # is chosen (disclosed in docs/schema.md).
     pre = [e for e in events if e.event_sec < SWAP_SEC]
-    beats = sum(
-        1 for e in pre
+    beats = len({
+        e.possession_id for e in pre
         if e.event_type == "take_on" and e.outcome == "success" and e.player_id == TORMENTOR
         and e.opponent_id == VICTIM and e.event_sec >= BOOST_FROM_SEC
-    )  # fmt: skip
-    if beats < MIN_BEATS:
+    })  # fmt: skip
+    if beats < MIN_BEAT_POSS:
         return None
     if any(
         e.event_type == "card" and e.qualifiers.get("card") in ("red", "second_yellow") for e in pre

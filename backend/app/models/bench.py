@@ -47,11 +47,15 @@ class BenchView(BaseModel):
     defender: PlayerCard | None  # current holder of the alerted slot
     ledger: DuelLedger | None
     threat: FlankThreat | None
+    league_def_win: float  # league-average defender win rate the trigger compares against
     options: list[Recommendation]
     cards: dict[str, PlayerCard]
     race: RaceResult | None
     impact: SwapImpact | None
-    executed_option_rank_at_alert: int | None  # rank of the swap Liverpool made, at the alert
+    # the swap Liverpool made, ranked among ALL options the advisor scored at the alert
+    executed_option_rank_at_alert: int | None
+    alert_option_count: int | None  # how many options were scored at the alert
+    executed_below_keep: bool  # it ranked below KEEP at the alert
     importance: list[ImportanceItem]
     importance_note: str  # method, n, AUC and the methodology-demo caveat ("" if no study)
     slots: dict[str, str]  # our on-pitch players -> slot at asof (formation preview)

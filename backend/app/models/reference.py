@@ -56,8 +56,10 @@ class PhysicalProfile(BaseModel):
 
     @property
     def time_0_5m_s(self) -> float:
-        """Approximate time to cover 5 m from a standing start (constant accel + reaction)."""
-        return round((10 / self.accel_ms2) ** 0.5 + 0.25, 2)
+        """Time to cover 5 m from a standing start, reaction included (the sprint model)."""
+        from app.sim.sprint import time_to  # pure maths; local import keeps models import-light
+
+        return round(time_to(5.0, self.top_speed_kmh, self.accel_ms2), 2)
 
 
 class Team(BaseModel):

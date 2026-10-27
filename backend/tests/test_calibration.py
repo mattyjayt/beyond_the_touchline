@@ -6,9 +6,10 @@ from itertools import product
 import pytest
 
 from app.config import get_settings
+from app.services.matchups import first_trigger
 from app.sim.duel import DUEL_BASELINE, DuelContext, duel_prob
 from app.sim.engine import GENERATOR_VERSION
-from app.sim.generate import first_trigger, simulate_history
+from app.sim.generate import simulate_history
 from app.sim.squads import load_reference
 
 DOKU, FRIMPONG, SZOBOSZLAI = "P-MCI-11", "P-LIV-30", "P-LIV-08"
@@ -28,7 +29,7 @@ def historical(reference):
 
 
 def test_versions_bumped_for_calibration():
-    assert GENERATOR_VERSION == "sim-v0.3"
+    assert GENERATOR_VERSION == "sim-v0.4"
     assert DUEL_BASELINE > 0
 
 
@@ -37,10 +38,20 @@ def test_frimpong_defending_is_modest(reference):
     assert reference[2][FRIMPONG].priors.defending == 68
 
 
-def test_league_take_on_success_is_realistic(historical):
-    take_ons = [e for _, _, events in historical for e in events if e.event_type == "take_on"]
-    rate = sum(e.outcome == "success" for e in take_ons) / len(take_ons)
-    assert 0.45 <= rate <= 0.52, rate
+@pytest.fixture(scope="module")
+def leagues():
+    """Historical simulations for SIM_SEED 1-5 (the pre-registered calibration seeds)."""
+    from app.sim.calibrate import SEEDS, league
+
+    return {seed: league(seed) for seed in SEEDS}
+
+
+def test_league_take_on_success_is_realistic(leagues):
+    from app.sim.calibrate import TAKE_ON_BAND, TAKE_ON_SEED_BAND
+
+    rates = [v["take_on_success"] for v in leagues.values()]
+    assert TAKE_ON_BAND[0] <= sum(rates) / len(rates) <= TAKE_ON_BAND[1], rates
+    assert all(TAKE_ON_SEED_BAND[0] <= r <= TAKE_ON_SEED_BAND[1] for r in rates), rates
 
 
 def _mean_p_beat(att, dfn) -> float:
@@ -59,24 +70,20 @@ def test_projected_swap_is_a_real_difference(reference):
     assert vs_frimpong - vs_szoboszlai >= 0.08, (vs_frimpong, vs_szoboszlai)
 
 
-def test_hot_duels_rare_at_any_second_in_history(historical):
-    """Spec 4: the generic trigger rarely fires without a scenario, checked at every second."""
+def test_hot_duels_rare_at_any_second_in_history(leagues):
+    """The trigger fires in <= 5% of the 100 historical matches (amendment A2)."""
     firing = [
-        match.match_id
-        for match, rosters, events in historical
+        (seed, match.match_id)
+        for seed, v in leagues.items()
+        for match, rosters, events in v["matches"]
         if any(
             first_trigger(events, rosters, team, 5400)[0] is not None
             for team in (match.home_team_id, match.away_team_id)
         )
     ]
-    assert len(firing) <= 3, firing
+    assert len(firing) <= 5, firing
 
 
-def test_dismissals_are_rare_in_history(historical):
-    dismissals = sum(
-        1
-        for _, _, events in historical
-        for e in events
-        if e.event_type == "card" and e.qualifiers.get("card") in ("red", "second_yellow")
-    )
-    assert dismissals / len(historical) <= 0.2, dismissals
+def test_dismissals_are_rare_in_history(leagues):
+    per_match = [v["dismissals_per_match"] for v in leagues.values()]
+    assert sum(per_match) / len(per_match) <= 0.2, per_match

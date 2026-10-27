@@ -10,11 +10,11 @@ const W = 600;
 const H = 190;
 const PAD = { l: 34, r: 12, t: 14, b: 22 };
 const END = 5400;
-const THRESHOLD = 0.3; // backend HOT_WIN_PCT (services/matchups.py)
 
 /** Rolling 10-minute defender win rate against the tormentor, from the backend's series. */
-export function DuelWinRate({ ledger, alertSec, swapSec, onSeek }: {
+export function DuelWinRate({ ledger, leagueWin, alertSec, swapSec, onSeek }: {
   ledger: DuelLedger | null;
+  leagueWin: number; // league-average defender win rate (backend LEAGUE_DEF_WIN)
   alertSec: number | null;
   swapSec: number | null;
   onSeek: (sec: number) => void;
@@ -61,8 +61,8 @@ export function DuelWinRate({ ledger, alertSec, swapSec, onSeek }: {
         {[0, 15, 30, 45, 60, 75, 90].map((m) => (
           <text key={m} x={x(m * 60)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--muted)">{m}&apos;</text>
         ))}
-        <line x1={PAD.l} x2={W - PAD.r} y1={y(THRESHOLD)} y2={y(THRESHOLD)} stroke={PALETTE.loss} strokeDasharray="4 4" />
-        <text x={W - PAD.r} y={y(THRESHOLD) - 4} textAnchor="end" fontSize="9" fill={PALETTE.loss}>alert ≤ 30%</text>
+        <line x1={PAD.l} x2={W - PAD.r} y1={y(leagueWin)} y2={y(leagueWin)} stroke={PALETTE.ghost} strokeDasharray="4 4" />
+        <text x={W - PAD.r} y={y(leagueWin) - 4} textAnchor="end" fontSize="9" fill="var(--muted)">league average {Math.round(leagueWin * 100)}%</text>
         {alertSec != null && <Marker x={x(alertSec)} label="alert" colour={PALETTE.loss} />}
         {swapSec != null && <Marker x={x(swapSec)} label="swap" colour={PALETTE.them} />}
         {segments.map((s, i) => (
@@ -78,7 +78,7 @@ export function DuelWinRate({ ledger, alertSec, swapSec, onSeek }: {
           </g>
         )}
       </svg>
-      <p className="text-[11px] text-[var(--muted)]">Gaps = no duels in the window. Small n swings fast. Simulated.</p>
+      <p className="text-[11px] text-[var(--muted)]">Gaps = no duels in the window. Small n swings fast. The alert asks whether the defender is confidently below the league average, with threat from the flank. Simulated.</p>
     </section>
   );
 }

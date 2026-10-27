@@ -20,6 +20,7 @@ from app.models import (
     SwapImpact,
 )
 from app.replay import ReplayManager
+from app.services import matchups
 from app.services.advisor import (
     RACE_GAP_M,
     AdvisorInput,
@@ -38,6 +39,7 @@ from app.services.matchups import (
     hot_duels,
     hot_pair,
     swap_impact,
+    window_label,
 )
 from app.services.race import race
 from app.sim.duel import MODEL_VERSION
@@ -48,7 +50,8 @@ DISCLOSURE = (
     "Simulated. Doku, Frimpong, Szoboszlai, Gomez and Bradley have pinned (fictional) "
     "profiles chosen for this storyline. Doku's take-on volume and his pairing with the RB "
     "holder are scripted from 50'; a +0.6 z handicap applies while Frimpong holds RB in that "
-    "window. The demo seed changed three times (docs/schema.md §11)."
+    "window. This demo is a busy draw (Doku about 43 take-ons/90 in that window vs about 19 "
+    "on average for the scenario). The demo seed changed four times (docs/schema.md §11)."
 )
 MONITOR_MIN_N = 4  # a new holder needs this many own duels before the advisor judges him
 IMPORTANCE_PATH = Path(__file__).resolve().parents[2] / "data" / "variable_importance.json"
@@ -57,7 +60,7 @@ IMPORTANCE_PATH = Path(__file__).resolve().parents[2] / "data" / "variable_impor
 def load_importance(path: Path = IMPORTANCE_PATH) -> tuple[list[ImportanceItem], str]:
     """The duel study's ranked variables and a one-line note; empty until the study ran."""
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return [], ""
     if data.get("model_version") != MODEL_VERSION:
@@ -122,6 +125,19 @@ def vacant_text(slot: str, attacker: str) -> str:
     )
 
 
+def _first_fire(store: Store, match_id: str, team_id: str, asof: int) -> tuple[int | None, list]:
+    """``first_trigger`` up to ``asof``, from one cached full-match scan: whether the trigger
+    has fired by second t depends only on events up to t, so the first fire is the same for
+    every asof at or after it (and None before it)."""
+    key = ("first_fire", match_id, team_id)
+    cache = store_cache(store)
+    if key not in cache:
+        events = store.events(match_id)
+        cache[key] = first_trigger(events, store.rosters(match_id), team_id, events[-1].event_sec)
+    fired_sec, fired = cache[key]
+    return (fired_sec, fired) if fired_sec is not None and fired_sec <= asof else (None, [])
+
+
 def _monitor_keep(
     store: Store, match_id: str, team_id: str, asof: int, h: HotDuel
 ) -> Recommendation:
@@ -133,7 +149,7 @@ def _monitor_keep(
         pros=[(f"{name} has only {h.n_20m} duel(s) against {att} at {h.defender_slot} so far: "
               f"monitoring until {MONITOR_MIN_N}")],
         cons=[(f"The {h.defender_slot} slot, before {name}, lost {h.slot_beaten_20m} of "
-              f"{h.slot_n_20m} duels in the last 20'")],
+              f"{h.slot_n_20m} duels in the last {window_label()}")],
     )  # fmt: skip
 
 
@@ -185,14 +201,16 @@ def _briefing(
         head,
         (
             f"{names[h.attacker_id]} vs {h.defender_slot} {names[h.defender_id]}: beaten "
-            f"{h.beaten_20m} in the last 20' (defender win {_pct(h.win_pct_20m)}, n={h.n_20m})."
+            f"{h.beaten_20m} in the last {window_label()} (defender win {_pct(h.win_pct_20m)}, "
+            f"n={h.n_20m})."
         ),
     ]
     if inp.tormentor_booked:
         parts.append(f"{names[h.attacker_id]} is on a yellow.")
     if threat is not None:
         parts.append(
-            f"Threat from this flank in the last 20': {threat.shots} shot(s), xG {threat.xg:.2f}, "
+            f"Threat from this flank in the last {window_label()}: {threat.shots} shot(s), "
+            f"xG {threat.xg:.2f}, "
             f"{threat.entries} cross(es)/box entries"
             + ("." if threat.shots else "; no shots conceded from this flank yet.")
         )
@@ -201,7 +219,7 @@ def _briefing(
         parts.append(
             f"Since the {impact.swap_sec // 60}' change the {h.defender_slot} has won "
             f"{_pct(a.win_pct)} (n={a.duels}) against {_pct(impact.before.win_pct)} "
-            f"(n={impact.before.duels}) in the 20' before."
+            f"(n={impact.before.duels}) in the {window_label()} before."
         )
     ranking = "; ".join(f"{o.option_rank}) {option_label(o, names)}" for o in options)
     parts.append(f"Advisor ranking (policy weights): {ranking}.")
@@ -237,13 +255,15 @@ def build_bench_view(
     importance, importance_note = load_importance()
     team_of = {r.player_id: r.team_id for r in rosters}
     ours = {p: s for p, s in current_slots(rosters, events, asof).items() if team_of[p] == team_id}
-    fired_sec, fired = first_trigger(events, rosters, team_id, asof)
+    fired_sec, fired = _first_fire(store, match_id, team_id, asof)
     if fired_sec is None:
         return BenchView(
             match_id=match_id, team_id=team_id, asof_sec=asof, minute=minute, score=score,
             alert=None, alert_active=False, alert_state="none", tormentor=None, defender=None, ledger=None, threat=None,
+            league_def_win=matchups.LEAGUE_DEF_WIN,
             options=[keep_only(match_id, team_id, asof)], cards={}, race=None, impact=None,
-            executed_option_rank_at_alert=None, importance=importance,
+            executed_option_rank_at_alert=None, alert_option_count=None,
+            executed_below_keep=False, importance=importance,
             importance_note=importance_note, slots=ours, disclosure=DISCLOSURE,
             briefing_seed=_briefing(store, head, None, [], None), briefing_evidence_ids=[],
         )  # fmt: skip
@@ -274,20 +294,27 @@ def build_bench_view(
     else:
         options = evaluate(inp) if inp else [keep_only(match_id, team_id, asof)]
     ledger = duel_ledger(events, att, slot, team_id, rosters, asof)
-    recent = duel_ledger(events, att, slot, team_id, rosters, asof, since=max(0, asof - 1200))
+    recent = duel_ledger(
+        events, att, slot, team_id, rosters, asof, since=max(0, asof - matchups.HOT_WINDOW_SEC)
+    )
     threat = FlankThreat(
         shots=recent.channel_shots, xg=recent.channel_xg, entries=recent.channel_entries,
         threatening=recent.channel_shots >= 1 or recent.channel_entries >= 2,
     )  # fmt: skip
     impact = swap_impact(events, rosters, team_id, att, slot, asof)
-    executed = None
+    executed = n_alert = None
+    below_keep = False
     if impact is not None:
-        key = ("alert_options", match_id, team_id, fired_sec)
+        key = ("alert_ranking", match_id, team_id, fired_sec)
         cache = store_cache(store)
-        if key not in cache:  # the ranking at the alert never changes: compute it once
+        if key not in cache:  # the full ranking at the alert never changes: compute it once
             at_alert = advisor_input(store, match_id, team_id, fired_sec, hot=first)
-            cache[key] = evaluate(at_alert) if at_alert is not None else []
-        executed = _executed_rank(store, match_id, team_id, impact, cache[key])
+            cache[key] = evaluate(at_alert, shortlist=False) if at_alert is not None else []
+        ranking = cache[key]
+        executed = _executed_rank(store, match_id, team_id, impact, ranking)
+        n_alert = len(ranking)
+        keep_rank = next((o.option_rank for o in ranking if o.option_type == "keep"), None)
+        below_keep = executed is not None and keep_rank is not None and executed > keep_rank
 
     slots = current_slots(rosters, events, asof)
     cards: dict[str, PlayerCard] = {}
@@ -309,13 +336,14 @@ def build_bench_view(
         ]  # fmt: skip
     race_res = race([store.players[p] for p in dict.fromkeys(race_ids)]) if race_ids else None
 
-    evidence = [p.event_id for p in ledger.points if p.sec > asof - 1200][-6:]
+    evidence = [p.event_id for p in ledger.points if p.sec > asof - matchups.HOT_WINDOW_SEC][-6:]
     return BenchView(
         match_id=match_id, team_id=team_id, asof_sec=asof, minute=minute, score=score,
         alert=hot, alert_active=active, alert_state=state, tormentor=tormentor, defender=defender, ledger=ledger,
-        threat=threat,
+        threat=threat, league_def_win=matchups.LEAGUE_DEF_WIN,
         options=options, cards=cards, race=race_res, impact=impact,
-        executed_option_rank_at_alert=executed, importance=importance,
+        executed_option_rank_at_alert=executed, alert_option_count=n_alert,
+        executed_below_keep=below_keep, importance=importance,
         importance_note=importance_note, slots=ours, disclosure=DISCLOSURE,
         briefing_seed=(
             _briefing(store, head, inp, options, impact, state, threat)

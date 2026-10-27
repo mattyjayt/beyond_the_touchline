@@ -17,9 +17,11 @@ interface Row {
  * Rates are shown with their uncertainty; a direction is only drawn when the backend says the
  * win-rate intervals separate.
  */
-export function SwapImpact({ impact, executedRank, name }: {
+export function SwapImpact({ impact, executedRank, optionCount, belowKeep, name }: {
   impact: Impact | null;
   executedRank: number | null;
+  optionCount: number | null;
+  belowKeep: boolean;
   name: (id: string) => string;
 }) {
   if (!impact) {
@@ -91,8 +93,8 @@ export function SwapImpact({ impact, executedRank, name }: {
         {executedRank === 1
           ? "The swap Liverpool made was the advisor's #1 option at the alert."
           : executedRank != null
-            ? `The swap Liverpool made was ranked #${executedRank} by the advisor at the alert, not #1. It is scripted at 70' whatever the advisor says.`
-            : "The swap Liverpool made was not among the advisor's options at the alert. It is scripted at 70' whatever the advisor says."}
+            ? `The swap Liverpool made ranked #${executedRank} of ${optionCount ?? "?"} options the advisor scored at the alert${belowKeep ? ", below KEEP" : ""}. It is scripted at 70' whatever the advisor says.`
+            : "The swap Liverpool made was not among the options the advisor scored at the alert. It is scripted at 70' whatever the advisor says."}
       </p>
       <p className="text-[11px] text-[var(--muted)]">
         The before window is the scripted spell the demo seed was chosen for; after the swap, Doku&apos;s volume and his pairing with the RB stay scripted and only outcomes are unscripted. Small samples; not causal. Simulated.

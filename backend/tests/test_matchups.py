@@ -12,6 +12,7 @@ from app.models import MatchEvent, RosterEntry
 from app.services.matchups import (
     current_slots,
     duel_ledger,
+    first_trigger,
     hot_duels,
     hot_pair,
     matchup_map,
@@ -19,7 +20,6 @@ from app.services.matchups import (
 )
 from app.sim.engine import MatchSim, Scenario, Side, mirror, pick_lineup
 from app.sim.formations import formation_slots
-from app.sim.generate import simulate_history
 from app.sim.squads import load_reference
 
 DOKU, FRIMPONG, SZOBOSZLAI, GOMEZ = "P-MCI-11", "P-LIV-30", "P-LIV-08", "P-LIV-02"
@@ -265,77 +265,79 @@ def test_ledger_by_slot_follows_occupant():
 
 
 # -------------------------------------------------------------- hot duels
-def test_hot_duels_fires_on_six_beaten_in_20_minutes():
+# Amended trigger (Phase B A1): >= 3 beaten possessions, P(win rate < league) >= HOT_Q,
+# and channel threat (>= 1 shot or >= 2 crosses/box entries) in the last 20 minutes.
+def _shot(ev: "Events", poss: str, sec: int) -> None:
+    ev.add(sec, "shot", "saved", "T-MCI", DOKU, possession_id=poss, start_x=88.0, start_y=60.0,
+           body_part="left_foot", qualifiers={"xg": 0.1})  # fmt: skip
+
+
+def _beaten_with_threat(secs=(1000, 1100, 1200, 1300, 1400)) -> "Events":
     ev = Events()
-    for sec in (1000, 1200, 1400, 1600, 1800):
-        ev.take_on(sec, True)
-    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1900) == []
-    ev.take_on(2000, True)
-    hot = hot_duels(ev.items, ROSTERS, "T-LIV", 2050)
+    for i, sec in enumerate(secs):
+        t = ev.take_on(sec, True)  # each beat in its own possession, in the RB channel
+        if i == 0:
+            _shot(ev, t.possession_id, sec + 3)
+    return ev
+
+
+def test_trigger_fires_with_beaten_possessions_posterior_and_threat():
+    from app.services.matchups import HOT_Q, p_below_league
+
+    ev = _beaten_with_threat()
+    hot = hot_duels(ev.items, ROSTERS, "T-LIV", 1450)
+    assert p_below_league(0, 5) >= HOT_Q  # 5 straight losses clear q = 0.95
     assert len(hot) == 1
     h = hot[0]
     assert (h.defender_id, h.defender_slot, h.attacker_id) == (FRIMPONG, "RB", DOKU)
-    assert h.beaten_20m == 6 and h.n_20m == 6 and h.win_pct_20m == 0.0
-    assert h.first_fired_sec == 2000
-    # beaten spread over more than 20 minutes does not fire
-    assert hot_duels(ev.items, ROSTERS, "T-LIV", 4400) == []
-    assert hot_duels(ev.items, ROSTERS, "T-MCI", 2050) == []
+    assert (h.beaten_20m, h.n_20m, h.threat_shots_20m) == (5, 5, 1)
+    assert h.p_below_league == pytest.approx(p_below_league(0, 5), abs=1e-3)
 
 
-def test_hot_duels_fires_on_low_win_rate():
-    def run(last: str) -> list:
-        ev = Events()
-        ev.take_on(100, False)
-        ev.take_on(200, False)
-        for sec in (300, 400, 500, 600, 700):
-            ev.take_on(sec, True)
-        if last == "foul":
-            ev.foul(800)  # n=8, 2 won: 25% <= 30%, while beaten stays 5
-        else:
-            ev.take_on(800, False)  # n=8, 3 won: 37.5%
-        return hot_duels(ev.items, ROSTERS, "T-LIV", 900)
-
-    hot = run("foul")
-    assert len(hot) == 1
-    assert hot[0].beaten_20m == 5 and hot[0].n_20m == 8
-    assert hot[0].win_pct_20m == pytest.approx(2 / 8, abs=1e-3)
-    assert hot[0].first_fired_sec == 800
-    assert run("fail") == []
-
-
-def test_hot_duels_first_fired_when_old_win_leaves_window():
-    """Regression: the trigger can start when a win drops out of the 20-min window (no duel
-    at that second). Must not raise."""
+def test_trigger_needs_threat_from_the_flank():
     ev = Events()
-    for sec in (100, 400, 500):
-        ev.take_on(sec, False)
-    for sec in (600, 700, 800, 900, 1000):
+    for sec in (1000, 1100, 1200, 1300):
         ev.take_on(sec, True)
-    ev.foul(1100)  # n=9, 3 won: 33% > 30%
-    hot = hot_duels(ev.items, ROSTERS, "T-LIV", 1350)
-    assert len(hot) == 1
-    assert hot[0].n_20m == 8 and hot[0].beaten_20m == 5
-    assert hot[0].win_pct_20m == pytest.approx(2 / 8, abs=1e-3)
-    assert hot[0].first_fired_sec == 1300  # the fail at 100 left the window
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1350) == []  # beaten, but no threat
 
 
-def test_hot_duels_beaten_means_not_won_back():
-    """Beaten = take-on lost without recovery (outright, or then fouled); recoveries are wins."""
+def test_trigger_needs_three_distinct_possessions():
     ev = Events()
-    for sec in (100, 200, 300):
-        ev.take_on(sec, True, then="recovery")
-    ev.take_on(400, True, then="foul")
-    ev.take_on(500, True)
-    assert hot_duels(ev.items, ROSTERS, "T-LIV", 600) == []  # beaten 2 of 5
-    ev.take_on(600, True)
-    ev.take_on(700, True, then="foul")
-    ev.take_on(800, True)
-    assert hot_duels(ev.items, ROSTERS, "T-LIV", 850) == []  # beaten 5 of 8, 37.5% won
-    ev.take_on(900, True)
-    hot = hot_duels(ev.items, ROSTERS, "T-LIV", 1000)
-    assert hot and hot[0].beaten_20m == 6 and hot[0].n_20m == 9
-    assert hot[0].win_pct_20m == pytest.approx(3 / 9, abs=1e-3)
-    assert hot[0].first_fired_sec == 900
+    for poss_start in (1000, 1200):  # two runs of three beats each
+        p = ev.new_poss()
+        for k in range(3):
+            ev.add(poss_start + 3 * k, "take_on", "success", "T-MCI", DOKU, possession_id=p,
+                   start_x=70.0, start_y=80.0, opponent_id=FRIMPONG,
+                   qualifiers={"duel": TERMS})  # fmt: skip
+        _shot(ev, p, poss_start + 10)
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1300) == []  # 6 losses, 2 possessions
+
+
+def test_trigger_respects_the_posterior():
+    from app.services.matchups import HOT_Q, p_below_league
+
+    ev = _beaten_with_threat((1000, 1100, 1200))
+    for sec in (1250, 1260, 1270, 1280):
+        ev.take_on(sec, False)  # four wins: 3 of 7 lost
+    fires = p_below_league(4, 7) >= HOT_Q
+    assert bool(hot_duels(ev.items, ROSTERS, "T-LIV", 1300)) is fires
+    assert not fires  # winning 4 of 7 is not worse than a league-average defender
+
+
+def test_first_fired_is_when_the_threat_arrives():
+    ev = Events()
+    ts = [ev.take_on(sec, True) for sec in (1000, 1050, 1100, 1150, 1200)]
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 1250) == []
+    _shot(ev, ts[1].possession_id, 1260)
+    h = hot_duels(ev.items, ROSTERS, "T-LIV", 1300)[0]
+    assert h.first_fired_sec == 1260
+    assert first_trigger(ev.items, ROSTERS, "T-LIV", 1300)[0] == 1260
+
+
+def test_trigger_switches_off_when_beats_leave_the_window():
+    ev = _beaten_with_threat()
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 2150)  # all inside (950, 2150]
+    assert hot_duels(ev.items, ROSTERS, "T-LIV", 2250) == []  # beats have left the window
 
 
 # ------------------------------------------------- in-memory demo-like match
@@ -391,34 +393,16 @@ def test_swap_impact_in_memory(swap_match):
     b, a = imp.before, imp.after
     assert b.window_sec == 1200  # [swap_sec - 1200, swap_sec - 1]
     assert a.window_sec == 5200 - imp.swap_sec + 1
+    poss = {e.event_id: e.possession_id for e in events}
     for led in (b, a):
-        assert led.beaten == sum(p.outcome == "lost" for p in led.points) + sum(
-            p.outcome == "foul" and p.terms != {} for p in led.points
-        )
+        beaten_poss = {
+            poss[p.event_id] for p in led.points
+            if p.outcome == "lost" or (p.outcome == "foul" and p.terms != {})
+        }  # fmt: skip
+        assert led.beaten == len(beaten_poss)  # one beaten per possession (Phase B item 9)
         assert led.beaten_per_10 == round(led.beaten * 600 / led.window_sec, 2)
     empty = duel_ledger(events, DOKU, "RB", "T-LIV", rosters, asof=100, since=200)
     assert empty.window_sec <= 0 and empty.beaten_per_10 is None
-
-
-# ----------------------------------------------------- historical rarity
-@pytest.fixture(scope="module")
-def historical(reference):
-    """The 20 historical fixtures, via the same function `generate()` uses."""
-    teams, squads = reference
-    return simulate_history(teams, squads, get_settings().sim_seed)
-
-
-def test_hot_duels_rare_in_history(historical):
-    assert len(historical) == 20
-    firing = [
-        match.match_id
-        for match, rosters, events in historical
-        if any(
-            hot_duels(events, rosters, team, 5400)
-            for team in (match.home_team_id, match.away_team_id)
-        )
-    ]
-    assert len(firing) <= 3, firing
 
 
 # ------------------------------------------------ demo data (regenerated SIM-001)
@@ -451,9 +435,7 @@ def test_swap_impact_after_swap(demo):
 
 # ------------------------------------------- C1: stats belong to the current holder
 def _swapped_after_six_beats() -> list[MatchEvent]:
-    ev = Events()
-    for sec in (1000, 1100, 1200, 1300, 1400, 1500):
-        ev.take_on(sec, True)  # Frimpong beaten 6 times at RB
+    ev = _beaten_with_threat((1000, 1100, 1200, 1300, 1400, 1500))  # Frimpong beaten 6 times
     ev.add(1600, "position_change", "neutral", "T-LIV", SZOBOSZLAI, recipient_id=FRIMPONG,
            qualifiers={"from_slot": "RW", "to_slot": "RB"})  # fmt: skip
     ev.add(1600, "position_change", "neutral", "T-LIV", FRIMPONG, recipient_id=SZOBOSZLAI,
@@ -502,7 +484,10 @@ def test_swap_impact_is_honest_about_overlap_and_shows_a_trajectory(swap_match):
     b, a = imp.before.win_ci, imp.after.win_ci
     separated = b is not None and a is not None and (b[1] < a[0] or a[1] < b[0])
     assert imp.win_separated is separated
-    assert [t.minutes for t in imp.trajectory] == [5, 10, 20]
+    assert [t.minutes for t in imp.trajectory] == [
+        m for m in (5, 10, 20) if imp.swap_sec + m * 60 - 1 <= 5400
+    ]
+    assert imp.trajectory and imp.trajectory[0].minutes == 5
     for t in imp.trajectory:
         led = duel_ledger(events, DOKU, "RB", "T-LIV", rosters,
                           asof=imp.swap_sec + t.minutes * 60 - 1, since=imp.swap_sec)  # fmt: skip
@@ -593,9 +578,31 @@ def test_records_vs_matches_per_defender_ledgers(swap_match):
 
 # ------------------------------------------------------------- C12: edge cases
 def test_no_hot_duel_once_the_tormentor_has_left():
-    ev = Events()
-    for sec in (1000, 1100, 1200, 1300, 1400, 1500):
-        ev.take_on(sec, True)
+    ev = _beaten_with_threat((1000, 1100, 1200, 1300, 1400, 1500))
     assert hot_duels(ev.items, ROSTERS, "T-LIV", 1550)
     ev.add(1600, "substitution", "neutral", "T-MCI", DOKU, recipient_id="P-MCI-47")
     assert hot_duels(ev.items, ROSTERS, "T-LIV", 1650) == []
+
+
+# ------------------------------------------- Phase B item 9: one beaten per possession
+def test_beaten_counts_once_per_possession():
+    ev = Events()
+    p = ev.new_poss()
+    for sec in (100, 103, 106):  # three beats in one 6-second run
+        ev.add(sec, "take_on", "success", "T-MCI", DOKU, possession_id=p, start_x=70.0,
+               start_y=80.0, opponent_id=FRIMPONG, qualifiers={"duel": TERMS})  # fmt: skip
+    ev.take_on(300, True)  # a separate possession
+    led = duel_ledger(ev.items, DOKU, FRIMPONG, "T-LIV", ROSTERS, asof=900)
+    assert led.duels == 4 and led.lost == 4
+    assert led.beaten == 2  # distinct possessions in which he was beaten
+
+
+def test_sticky_alert_keeps_the_pair_after_it_goes_quiet():
+    from app.services.matchups import sticky_alert
+
+    ev = _beaten_with_threat((1000, 1100, 1200, 1300, 1400))
+    fired, hot, active = sticky_alert(ev.items, ROSTERS, "T-LIV", 1450)
+    assert fired is not None and active and hot.defender_id == FRIMPONG
+    later = sticky_alert(ev.items, ROSTERS, "T-LIV", 2900)  # beats have left the window
+    assert later[0] == fired and later[1].defender_slot == "RB" and later[2] is False
+    assert sticky_alert(ev.items, ROSTERS, "T-LIV", 900) == (None, None, False)
